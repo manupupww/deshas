@@ -97,17 +97,18 @@ function App() {
         throw new Error(result.detail || "Įvyko nežinoma klaida");
       }
 
-      if (dataType === 'Time-Series Aggregator (Cloud)' || dataType === 'Dollar Bars (ML Ready)') {
-        setModalCmd(result.command);
-        setSuccessMsg("Norint parsiųsti didelius kiekius - naudokite debesies komandą.");
-        setLoading(false);
-        return;
-      }
-
       if (result.success) {
-        setSuccessMsg(`✅ Apdorojimas baigtas! Iš viso: ${result.row_count} eilučių.`);
+        let msg = `✅ Apdorojimas baigtas! Iš viso: ${result.row_count} eilučių.`;
+        if (result.hf_url) {
+          msg += ` Failas automatiškai įkeltas į Hugging Face!`;
+        }
+        setSuccessMsg(msg);
         setPreviewData(result.preview);
         setCsvData(result.csv_data);
+        if (result.hf_url) {
+          // You could also store this URL in state if you want to show a dedicated button
+          console.log("HF URL:", result.hf_url);
+        }
       } else {
         setError(result.message || "Duomenų nerasta.");
       }

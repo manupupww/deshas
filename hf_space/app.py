@@ -65,30 +65,37 @@ def download_data(request: DownloadRequest):
     print(f"   Threshold: {request.threshold}")
     print(f"{'='*60}")
     
+    # HF Upload settings
+    hf_repo = os.environ.get("HF_REPO", "Vycka12/Base")
+    hf_token = os.environ.get("HF_TOKEN")
+    
     try:
         if request.data_type == 'Klines (OHLCV)':
             print("[CLOUD] Calling fetch_klines_cloud...")
             fn = modal.Function.from_name("binance-data-dashboard", "fetch_klines_cloud")
-            result = fn.remote(request.symbol, request.interval, request.start_date, request.end_date)
+            result = fn.remote(request.symbol, request.interval, request.start_date, request.end_date, hf_repo, hf_token)
             
         elif request.data_type == 'Liquidations':
             print("[CLOUD] Calling fetch_liquidations_cloud...")
             fn = modal.Function.from_name("binance-data-dashboard", "fetch_liquidations_cloud")
-            result = fn.remote(request.symbol, request.start_date, request.end_date)
+            result = fn.remote(request.symbol, request.start_date, request.end_date, hf_repo, hf_token)
 
         elif request.data_type == 'AggTrades':
             print("[CLOUD] Calling fetch_aggtrades_cloud...")
             fn = modal.Function.from_name("binance-data-dashboard", "fetch_aggtrades_cloud")
-            result = fn.remote(request.symbol, request.start_date, request.end_date)
+            result = fn.remote(request.symbol, request.start_date, request.end_date, hf_repo, hf_token)
 
         elif request.data_type == 'Dollar Bars (ML Ready)':
             print(f"[CLOUD] Calling fetch_dollar_bars_cloud (threshold: {request.threshold})...")
             fn = modal.Function.from_name("binance-data-dashboard", "fetch_dollar_bars_cloud")
-            result = fn.remote(request.symbol, request.start_date, request.end_date, request.threshold)
+            result = fn.remote(request.symbol, request.start_date, request.end_date, request.threshold, hf_repo, hf_token)
 
         else:
             raise HTTPException(status_code=400, detail="Unknown data type.")
 
+        if result.get("hf_url"):
+            print(f"[CLOUD] Result uploaded to HF: {result['hf_url']}")
+            
         print(f"[CLOUD] Result received: success={result.get('success')}, rows={result.get('row_count', 0)}")
         return result
             

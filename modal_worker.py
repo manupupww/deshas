@@ -8,7 +8,32 @@ from dateutil.relativedelta import relativedelta
 
 # Modal app
 app = modal.App("binance-data-dashboard")
-image = modal.Image.debian_slim().pip_install("pandas", "requests", "python-dateutil", "ccxt")
+image = modal.Image.debian_slim().pip_install("pandas", "requests", "python-dateutil", "ccxt", "huggingface_hub")
+
+def upload_to_hf(csv_content, filename, repo_id, token):
+    """Uploads CSV content directly to Hugging Face repository."""
+    from huggingface_hub import HfApi
+    import io
+    
+    try:
+        api = HfApi(token=token)
+        # Create repo if not exists (as dataset)
+        try:
+            api.create_repo(repo_id=repo_id, repo_type="dataset", exist_ok=True)
+        except:
+            pass
+            
+        api.upload_file(
+            path_or_fileobj=io.BytesIO(csv_content.encode('utf-8')),
+            path_in_repo=filename,
+            repo_id=repo_id,
+            repo_type="dataset"
+        )
+        print(f"  [HF] Successfully uploaded to {repo_id}/{filename}")
+        return True, f"https://huggingface.co/datasets/{repo_id}/blob/main/{filename}"
+    except Exception as e:
+        print(f"  [HF] Upload failed: {e}")
+        return False, str(e)
 
 
 def download_vision_zips(base_url, data_type, clean_symbol, start_dt, end_dt, klines_tf=None):
@@ -85,7 +110,7 @@ def download_vision_zips(base_url, data_type, clean_symbol, start_dt, end_dt, kl
 # ============================================================
 
 @app.function(image=image, timeout=7200, cpu=2.0, memory=8192)
-def fetch_klines_cloud(symbol: str, timeframe: str, start_date: str, end_date: str):
+def fetch_klines_cloud(symbol: str, timeframe: str, start_date: str, end_date: str, hf_repo: str = None, hf_token: str = None):
     """Download Klines (OHLCV) in the cloud."""
     print(f"[CLOUD] Klines: {symbol} {timeframe} | {start_date} -> {end_date}")
     clean_symbol = symbol.replace("/", "").replace(":", "")
@@ -106,12 +131,19 @@ def fetch_klines_cloud(symbol: str, timeframe: str, start_date: str, end_date: s
 
     print(f"[CLOUD] Klines done: {len(raw)} rows")
     csv_string = raw.to_csv(index=False)
+    
+    hf_url = None
+    if hf_repo and hf_token:
+        filename = f"{clean_symbol}_{timeframe}_{start_date}_{end_date}_klines.csv"
+        success, url_or_err = upload_to_hf(csv_string, filename, hf_repo, hf_token)
+        if success: hf_url = url_or_err
+
     preview = raw.tail(100).to_dict(orient="records")
-    return {"success": True, "row_count": len(raw), "preview": preview, "csv_data": csv_string}
+    return {"success": True, "row_count": len(raw), "preview": preview, "csv_data": csv_string, "hf_url": hf_url}
 
 
 @app.function(image=image, timeout=7200, cpu=2.0, memory=8192)
-def fetch_aggtrades_cloud(symbol: str, start_date: str, end_date: str):
+def fetch_aggtrades_cloud(symbol: str, start_date: str, end_date: str, hf_repo: str = None, hf_token: str = None):
     """Download AggTrades in the cloud."""
     print(f"[CLOUD] AggTrades: {symbol} | {start_date} -> {end_date}")
     clean_symbol = symbol.replace("/", "").replace(":", "")
@@ -131,12 +163,19 @@ def fetch_aggtrades_cloud(symbol: str, start_date: str, end_date: str):
 
     print(f"[CLOUD] AggTrades done: {len(raw)} rows")
     csv_string = raw.to_csv(index=False)
+
+    hf_url = None
+    if hf_repo and hf_token:
+        filename = f"{clean_symbol}_{start_date}_{end_date}_aggTrades.csv"
+        success, url_or_err = upload_to_hf(csv_string, filename, hf_repo, hf_token)
+        if success: hf_url = url_or_err
+
     preview = raw.tail(100).to_dict(orient="records")
-    return {"success": True, "row_count": len(raw), "preview": preview, "csv_data": csv_string}
+    return {"success": True, "row_count": len(raw), "preview": preview, "csv_data": csv_string, "hf_url": hf_url}
 
 
 @app.function(image=image, timeout=7200, cpu=2.0, memory=8192)
-def fetch_liquidations_cloud(symbol: str, start_date: str, end_date: str):
+def fetch_liquidations_cloud(symbol: str, start_date: str, end_date: str, hf_repo: str = None, hf_token: str = None):
     """Download Liquidations in the cloud."""
     print(f"[CLOUD] Liquidations: {symbol} | {start_date} -> {end_date}")
     clean_symbol = symbol.replace("/", "").replace(":", "")
@@ -157,12 +196,19 @@ def fetch_liquidations_cloud(symbol: str, start_date: str, end_date: str):
 
     print(f"[CLOUD] Liquidations done: {len(raw)} rows")
     csv_string = raw.to_csv(index=False)
+
+    hf_url = None
+    if hf_repo and hf_token:
+        filename = f"{clean_symbol}_{start_date}_{end_date}_liquidations.csv"
+        success, url_or_err = upload_to_hf(csv_string, filename, hf_repo, hf_token)
+        if success: hf_url = url_or_err
+
     preview = raw.tail(100).to_dict(orient="records")
-    return {"success": True, "row_count": len(raw), "preview": preview, "csv_data": csv_string}
+    return {"success": True, "row_count": len(raw), "preview": preview, "csv_data": csv_string, "hf_url": hf_url}
 
 
 @app.function(image=image, timeout=7200, cpu=2.0, memory=8192)
-def fetch_dollar_bars_cloud(symbol: str, start_date: str, end_date: str, threshold: float = 1_000_000):
+def fetch_dollar_bars_cloud(symbol: str, start_date: str, end_date: str, threshold: float = 1_000_000, hf_repo: str = None, hf_token: str = None):
     """Download AggTrades and generate Dollar Bars in the cloud."""
     print(f"[CLOUD] Dollar Bars: {symbol} | {start_date} -> {end_date} | Threshold: {threshold}")
     clean_symbol = symbol.replace("/", "").replace(":", "")
@@ -211,8 +257,15 @@ def fetch_dollar_bars_cloud(symbol: str, start_date: str, end_date: str, thresho
     result_df = pd.DataFrame(bars)
     print(f"[CLOUD] Dollar Bars done: {len(result_df)} bars")
     csv_string = result_df.to_csv(index=False)
+
+    hf_url = None
+    if hf_repo and hf_token:
+        filename = f"{clean_symbol}_{start_date}_{end_date}_dollarBars_{int(threshold)}.csv"
+        success, url_or_err = upload_to_hf(csv_string, filename, hf_repo, hf_token)
+        if success: hf_url = url_or_err
+
     preview = result_df.tail(100).to_dict(orient="records")
-    return {"success": True, "row_count": len(result_df), "preview": preview, "csv_data": csv_string}
+    return {"success": True, "row_count": len(result_df), "preview": preview, "csv_data": csv_string, "hf_url": hf_url}
 
 
 @app.local_entrypoint()
