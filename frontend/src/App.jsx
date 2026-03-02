@@ -77,14 +77,9 @@ function App() {
     setProgress(2);
 
     try {
-      const controller = new AbortController();
-      // 10 min timeout for very large downloads
-      const timeoutId = setTimeout(() => controller.abort(), 600000);
-
       const response = await fetch(`${API_BASE}/download`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
         body: JSON.stringify({
           symbol: selectedSymbol,
           interval: interval,
@@ -96,7 +91,6 @@ function App() {
         })
       });
 
-      clearTimeout(timeoutId);
       const result = await response.json();
 
       if (!response.ok) {
@@ -119,11 +113,7 @@ function App() {
       }
 
     } catch (err) {
-      if (err.name === 'AbortError') {
-        setError("❌ Užklausa nutraukta — per ilgas laukimas (>10 min). Bandykite mažesnį laikotarpį.");
-      } else {
-        setError(`❌ Klaida: ${err.message}`);
-      }
+      setError(`❌ Klaida: ${err.message}`);
     } finally {
       setLoading(false);
     }

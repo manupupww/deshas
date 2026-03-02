@@ -1,5 +1,9 @@
 import os
 import sys
+
+# Priverčiame stdout naudoti UTF-8, kad Windows terminalas nelūžtų dėl lietuviškų raidžių
+sys.stdout.reconfigure(encoding='utf-8')
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -58,7 +62,7 @@ def get_symbols():
 @app.post("/api/download")
 def download_data(request: DownloadRequest):
     print(f"\n{'='*60}")
-    print(f"📥 Gautas download request:")
+    print(f"Gautas download request:")
     print(f"   Symbol: {request.symbol}")
     print(f"   Interval: {request.interval}")
     print(f"   Data Type: {request.data_type}")
@@ -70,37 +74,37 @@ def download_data(request: DownloadRequest):
         data = pd.DataFrame()
         
         if request.data_type == 'Klines (OHLCV)':
-            print("⏳ Pradedamas Klines siuntimas per CCXT API...")
+            print("Pradedamas Klines siuntimas per CCXT API...")
             data = downloader_instance.fetch_klines(
                 request.symbol, 
                 request.interval, 
                 request.start_date, 
                 request.end_date
             )
-            print(f"📊 Klines rezultatas: {len(data)} eilučių")
+            print(f"Klines rezultatas: {len(data)} eilučių")
         
         elif request.data_type == 'Liquidations':
-            print("⏳ Pradedamas Liquidations siuntimas iš Binance Vision...")
+            print("Pradedamas Liquidations siuntimas iš Binance Vision...")
             data = downloader_instance.fetch_vision_data(
                 'liquidationOrders',
                 request.symbol,
                 request.start_date,
                 request.end_date
             )
-            print(f"📊 Liquidations rezultatas: {len(data)} eilučių")
+            print(f"Liquidations rezultatas: {len(data)} eilučių")
 
         elif request.data_type == 'AggTrades':
-            print("⏳ Pradedamas AggTrades siuntimas iš Binance Vision...")
+            print("Pradedamas AggTrades siuntimas iš Binance Vision...")
             data = downloader_instance.fetch_vision_data(
                 'aggTrades',
                 request.symbol,
                 request.start_date,
                 request.end_date
             )
-            print(f"📊 AggTrades rezultatas: {len(data)} eilučių")
+            print(f"AggTrades rezultatas: {len(data)} eilučių")
 
         elif request.data_type == 'Dollar Bars (ML Ready)':
-            print(f"⏳ Siunčiami AggTrades ir generuojami Dollar Bars (Threshold: {request.threshold})...")
+            print(f"Siunčiami AggTrades ir generuojami Dollar Bars (Threshold: {request.threshold})...")
             agg_trades = downloader_instance.fetch_vision_data(
                 'aggTrades',
                 request.symbol,
@@ -109,9 +113,9 @@ def download_data(request: DownloadRequest):
             )
             if not agg_trades.empty:
                 data = downloader_instance.create_dollar_bars(agg_trades, threshold=request.threshold)
-                print(f"📊 Dollar Bars rezultatas: {len(data)} eilučių")
+                print(f"Dollar Bars rezultatas: {len(data)} eilučių")
             else:
-                print("⚠️ AggTrades nerasta, Dollar Bars sugeneruoti nepavyko.")
+                print("AggTrades nerasta, Dollar Bars sugeneruoti nepavyko.")
 
         elif request.data_type == 'Time-Series Aggregator (Cloud)':
             cmd_tf = request.interval if request.agg_mode == "Standard (Klines + Liq)" else "Dollar Bars"
@@ -123,7 +127,7 @@ def download_data(request: DownloadRequest):
             raise HTTPException(status_code=400, detail="Nežinomas duomenų tipas.")
 
         if not data.empty:
-            print(f"✅ Sėkmingai! Grąžinama {len(data)} eilučių.")
+            print(f"Sėkmingai! Grąžinama {len(data)} eilučių.")
             # Paimti 100 paskutinių eilučių preview
             preview_data = data.tail(100).to_dict(orient="records")
             # Sukuriame vieną CSV failo string masyvą
@@ -136,11 +140,11 @@ def download_data(request: DownloadRequest):
                 "csv_data": csv_string
             }
         else:
-            print("⚠️ Duomenų nerasta — tuščias DataFrame grąžintas.")
+            print("Duomenų nerasta — tuščias DataFrame grąžintas.")
             return {"success": False, "message": "Duomenų nerasta."}
             
     except Exception as e:
-        print(f"❌ KLAIDA: {str(e)}")
+        print(f"KLAIDA: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Paleisti su: uvicorn backend.api:app --reload
