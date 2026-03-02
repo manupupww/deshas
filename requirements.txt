@@ -1,6 +1,9 @@
-streamlit
+fastapi
+uvicorn
+python-dotenv
 pandas
 ccxt
 requests
 python-binance
 python-dateutil
+gunicorn
