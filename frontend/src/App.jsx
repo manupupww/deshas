@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import './App.css'
 
-const API_BASE = (import.meta.env.VITE_API_URL || 'https://2cea-85-206-120-41.ngrok-free.app') + '/api';
+const API_BASE = (import.meta.env.VITE_API_URL || 'https://8818-85-206-120-41.ngrok-free.app') + '/api';
 
 function App() {
   const [symbols, setSymbols] = useState(['BTC/USDT']);
