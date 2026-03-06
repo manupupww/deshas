@@ -97,8 +97,15 @@ def download_data(request: DownloadRequest):
             fn = modal.Function.from_name("binance-data-dashboard", "fetch_dollar_bars_cloud")
             result = fn.remote(request.symbol, request.start_date, request.end_date, request.threshold, hf_repo, hf_token)
 
+        elif request.data_type == 'VPIN (Flow Toxicity)':
+            buckets = int(request.threshold) if request.threshold else 50
+            print(f"[CLOUD] Calling fetch_vpin_cloud (buckets/day: {buckets})...")
+            fn = modal.Function.from_name("binance-data-dashboard", "fetch_vpin_cloud")
+            result = fn.remote(request.symbol, request.start_date, request.end_date, buckets, hf_repo, hf_token)
+
         else:
             raise HTTPException(status_code=400, detail="Unknown data type.")
+
 
         if result.get("hf_url"):
             print(f"[CLOUD] Result uploaded to HF: {result['hf_url']}")
