@@ -332,82 +332,88 @@ def fetch_dollar_bars_cloud(symbol: str, start_date: str, end_date: str, thresho
 @app.function(image=image, timeout=7200, cpu=1.0, memory=51200)
 def fetch_vpin_cloud(symbol: str, start_date: str, end_date: str, buckets_per_day: int = 50, hf_repo: str = None, hf_token: str = None):
     """
-    Download AggTrades and calculate VPIN (Volume-Synchronized Probability of Informed Trading).
-    Month-by-month chunked processing for extreme memory efficiency.
+    Download AggTrades and calculate VPIN.
+    Optimized for high speed and low memory using Klines for pre-scan.
     """
-    print(f"[CLOUD] VPIN (Chunked): {symbol} | {start_date} -> {end_date} | Buckets/Day: {buckets_per_day}")
+    print(f"[CLOUD] VPIN (Optimized): {symbol} | {start_date} -> {end_date} | Buckets/Day: {buckets_per_day}")
     clean_symbol = symbol.replace("/", "").replace(":", "")
     base_url = "https://data.binance.vision/data/futures/um"
     start_dt = datetime.strptime(start_date, "%Y-%m-%d")
     end_dt = datetime.strptime(end_date, "%Y-%m-%d")
     total_days = (end_dt - start_dt).days + 1
 
-    # 1) PRE-SCAN: Calculate total volume to determine bucket size
-    print("  [VPIN] Pre-scanning for total volume...")
+    # 1) FAST PRE-SCAN: Use 1m Klines to find total volume (Seconds vs Minutes)
+    print("  [VPIN] Estimating total volume from 1m Klines...")
     total_vol = 0
-    # Column mapping for aggTrades zip: [agg_id, price, quantity, first_id, last_id, ts, is_buyer_maker]
-    # We need column 2 (quantity)
-    for df_chunk, label in yield_vision_zips(base_url, "aggTrades", clean_symbol, start_dt, end_dt, usecols=[2]):
-        total_vol += pd.to_numeric(df_chunk.iloc[:, 0]).sum()
-    
+    # Klines: [open_time, open, high, low, close, volume, close_time, quote_volume, ...]
+    # We only need column 5 (volume)
+    for df_k, label in yield_vision_zips(base_url, "klines", clean_symbol, start_dt, end_dt, timeframe="1m", usecols=[5]):
+        total_vol += pd.to_numeric(df_k.iloc[:, 0]).sum()
+        del df_k
+        gc.collect()
+
     if total_vol == 0:
-        return {"success": False, "message": "AggTrades nerasta, VPIN paskaiciuoti nepavyko."}
+        return {"success": False, "message": "Volume data not found (Klines missing)."}
     
     bucket_size = total_vol / (total_days * buckets_per_day)
-    print(f"  [VPIN] Total Vol: {total_vol:,.0f} | Bucket Size: {bucket_size:,.2f}")
+    print(f"  [VPIN] Total Vol Est: {total_vol:,.0f} | Target Bucket Size: {bucket_size:,.2f}")
 
-    # 2) MAIN PROCESSING: Chunked loop
+    # 2) MAIN PROCESSING: Faster Chunked Loop
     vpin_data = []
-    # State tracking across chunks
-    s = {
-        'curr_b_vol': 0, 'curr_b_buy': 0, 'curr_b_sell': 0,
-        'curr_b_open': None, 'curr_b_high': -float('inf'), 'curr_b_low': float('inf'), 'curr_b_ts': None
-    }
+    # State tracking
+    curr_vol = 0
+    curr_buy = 0
+    curr_sell = 0
+    curr_open = None
+    curr_high = -float('inf')
+    curr_low = float('inf')
+    curr_ts = None
 
     for df_chunk, label in yield_vision_zips(base_url, "aggTrades", clean_symbol, start_dt, end_dt):
         print(f"  [VPIN] Processing {label} ({len(df_chunk)} rows)...")
-        df_chunk.columns = ['agg_trade_id', 'price', 'quantity', 'first_trade_id', 'last_trade_id', 'timestamp', 'is_buyer_maker']
-        df_chunk['timestamp'] = pd.to_datetime(pd.to_numeric(df_chunk['timestamp']), unit='ms')
-        df_chunk['price'] = pd.to_numeric(df_chunk['price'])
-        df_chunk['quantity'] = pd.to_numeric(df_chunk['quantity'])
+        # Column indices: 1=price, 2=quantity, 5=timestamp, 6=is_buyer_maker
+        prices = pd.to_numeric(df_chunk.iloc[:, 1]).values
+        quants = pd.to_numeric(df_chunk.iloc[:, 2]).values
+        times = pd.to_datetime(pd.to_numeric(df_chunk.iloc[:, 5]), unit='ms')
+        is_maker = df_chunk.iloc[:, 6].values
         
-        # Trade side
-        df_chunk['buy_vol'] = np.where(df_chunk['is_buyer_maker'], 0, df_chunk['quantity'])
-        df_chunk['sell_vol'] = np.where(df_chunk['is_buyer_maker'], df_chunk['quantity'], 0)
+        # Calculate buy/sell volume
+        buys = np.where(is_maker, 0, quants)
+        sells = np.where(is_maker, quants, 0)
 
-        for _, row in df_chunk.iterrows():
-            if s['curr_b_open'] is None:
-                s['curr_b_open'] = row['price']
-                s['curr_b_ts'] = row['timestamp']
+        # Batch iteration (much faster than iterrows)
+        for i in range(len(quants)):
+            if curr_open is None:
+                curr_open = prices[i]
+                curr_ts = times[i]
             
-            s['curr_b_high'] = max(s['curr_b_high'], row['price'])
-            s['curr_b_low'] = min(s['curr_b_low'], row['price'])
-            s['curr_b_vol'] += row['quantity']
-            s['curr_b_buy'] += row['buy_vol']
-            s['curr_b_sell'] += row['sell_vol']
+            curr_high = max(curr_high, prices[i])
+            curr_low = min(curr_low, prices[i])
+            curr_vol += quants[i]
+            curr_buy += buys[i]
+            curr_sell += sells[i]
 
-            if s['curr_b_vol'] >= bucket_size:
-                imbalance = abs(s['curr_b_buy'] - s['curr_b_sell'])
+            if curr_vol >= bucket_size:
                 vpin_data.append({
-                    'timestamp': s['curr_b_ts'], 'open': s['curr_b_open'], 'high': s['curr_b_high'],
-                    'low': s['curr_b_low'], 'close': row['price'], 'volume': s['curr_b_vol'],
-                    'buy_vol': s['curr_b_buy'], 'sell_vol': s['curr_b_sell'], 'imbalance': imbalance
+                    'timestamp': curr_ts, 'open': curr_open, 'high': curr_high,
+                    'low': curr_low, 'close': prices[i], 'volume': curr_vol,
+                    'buy_vol': curr_buy, 'sell_vol': curr_sell,
+                    'imbalance': abs(curr_buy - curr_sell)
                 })
-                # Reset state
-                s['curr_b_vol'], s['curr_b_buy'], s['curr_b_sell'] = 0, 0, 0
-                s['curr_b_open'], s['curr_b_high'], s['curr_b_low'] = None, -float('inf'), float('inf')
+                # Reset
+                curr_vol, curr_buy, curr_sell = 0, 0, 0
+                curr_open, curr_high, curr_low = None, -float('inf'), float('inf')
         
-        # Free memory from the chunk immediately
         del df_chunk
         gc.collect()
 
     if not vpin_data:
-        return {"success": False, "message": "Buckets nebuvo sugeneruoti. Galbūt per mažai duomenų?"}
+        return {"success": False, "message": "No buckets generated. Check data range."}
 
     df_vpin = pd.DataFrame(vpin_data)
     df_vpin['vpin'] = df_vpin['imbalance'].rolling(window=buckets_per_day).mean() / bucket_size
     
-    print(f"[CLOUD] VPIN done: {len(df_vpin)} buckets.")
+    print(f"[CLOUD] VPIN Complete: {len(df_vpin)} buckets.")
     csv_string = df_vpin.to_csv(index=False)
 
     hf_url = None
