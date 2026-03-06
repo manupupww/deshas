@@ -86,12 +86,16 @@ def download_data(request: DownloadRequest):
             result = fn.remote(request.symbol, request.start_date, request.end_date)
 
         elif request.data_type == 'Dollar Bars (ML Ready)':
-            print(f"[CLOUD] Calling fetch_dollar_bars_parallel (threshold: {request.threshold})...")
-            fn = modal.Function.from_name("binance-data-dashboard", "fetch_dollar_bars_parallel")
-            # Pass HF secrets from environment
-            hf_repo = os.getenv("HUGGINGFACE_REPO", "Vycka12/Base")
-            hf_token = os.getenv("HUGGINGFACE_TOKEN")
-            result = fn.remote(request.symbol, request.start_date, request.end_date, request.threshold, hf_repo, hf_token)
+            print(f"[CLOUD] Calling fetch_dollar_bars_cloud (threshold: {request.threshold})...")
+            fn = modal.Function.from_name("binance-data-dashboard", "fetch_dollar_bars_cloud")
+            result = fn.remote(request.symbol, request.start_date, request.end_date, request.threshold)
+
+        elif request.data_type == 'VPIN (Flow Toxicity)':
+            print(f"[CLOUD] Calling fetch_vpin_cloud (buckets: {request.threshold})...")
+            # Using threshold field temporarily to pass buckets_per_day or just hardcode
+            fn = modal.Function.from_name("binance-data-dashboard", "fetch_vpin_cloud")
+            # In UI we'll use threshold field for buckets per day
+            result = fn.remote(request.symbol, request.start_date, request.end_date, int(request.threshold))
 
         else:
             raise HTTPException(status_code=400, detail="Unknown data type.")

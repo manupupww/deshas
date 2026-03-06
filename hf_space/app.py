@@ -9,10 +9,6 @@ from pydantic import BaseModel
 import ccxt
 from typing import Optional
 import modal
-from dotenv import load_dotenv
-
-# Load .env if present
-load_dotenv()
 
 app = FastAPI(title="Binance Data Dashboard API")
 
@@ -97,8 +93,8 @@ def download_data(request: DownloadRequest):
             result = fn.remote(request.symbol, request.start_date, request.end_date, hf_repo, hf_token)
 
         elif request.data_type == 'Dollar Bars (ML Ready)':
-            print(f"[CLOUD] Calling fetch_dollar_bars_parallel (threshold: {request.threshold})...")
-            fn = modal.Function.from_name("binance-data-dashboard", "fetch_dollar_bars_parallel")
+            print(f"[CLOUD] Calling fetch_dollar_bars_cloud (threshold: {request.threshold})...")
+            fn = modal.Function.from_name("binance-data-dashboard", "fetch_dollar_bars_cloud")
             result = fn.remote(request.symbol, request.start_date, request.end_date, request.threshold, hf_repo, hf_token)
 
         else:

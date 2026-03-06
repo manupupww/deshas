@@ -29,7 +29,7 @@ function App() {
   const [progress, setProgress] = useState(0);
 
   const intervals = ['1s', '1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d', '3d', '1w', '1mo'];
-  const dataTypes = ['Klines (OHLCV)', 'Liquidations', 'AggTrades', 'Dollar Bars (ML Ready)', 'Time-Series Aggregator (Cloud)'];
+  const dataTypes = ['Klines (OHLCV)', 'Liquidations', 'AggTrades', 'Dollar Bars (ML Ready)', 'VPIN (Flow Toxicity)', 'Time-Series Aggregator (Cloud)'];
 
   useEffect(() => {
     fetch(`${API_BASE}/symbols`)
@@ -189,6 +189,20 @@ function App() {
               onChange={e => setDollarThreshold(Number(e.target.value))}
               step="100000"
             />
+          </div>
+        )}
+
+        {dataType === 'VPIN (Flow Toxicity)' && (
+          <div className="form-group">
+            <label>Buckets Per Day (Resolution)</label>
+            <input
+              type="number"
+              className="form-control"
+              value={dollarThreshold} // Reusing threshold state for buckets_per_day
+              onChange={e => setDollarThreshold(Number(e.target.value))}
+              step="10"
+            />
+            <small style={{color: 'var(--text-secondary)', fontSize: '0.75rem'}}>Rekomenduojama: 50-100</small>
           </div>
         )}
 
