@@ -333,88 +333,94 @@ def fetch_dollar_bars_cloud(symbol: str, start_date: str, end_date: str, thresho
 def fetch_vpin_cloud(symbol: str, start_date: str, end_date: str, buckets_per_day: int = 50, hf_repo: str = None, hf_token: str = None):
     """
     Download AggTrades and calculate VPIN.
-    Optimized for high speed and low memory using Klines for pre-scan.
+    Strictly sequential processing: one month at a time.
     """
-    print(f"[CLOUD] VPIN (Optimized): {symbol} | {start_date} -> {end_date} | Buckets/Day: {buckets_per_day}")
+    print(f"[CLOUD] VPIN (Strict Sequential): {symbol} | {start_date} -> {end_date} | Buckets/Day: {buckets_per_day}")
     clean_symbol = symbol.replace("/", "").replace(":", "")
     base_url = "https://data.binance.vision/data/futures/um"
     start_dt = datetime.strptime(start_date, "%Y-%m-%d")
     end_dt = datetime.strptime(end_date, "%Y-%m-%d")
     total_days = (end_dt - start_dt).days + 1
 
-    # 1) FAST PRE-SCAN: Use 1m Klines to find total volume (Seconds vs Minutes)
-    print("  [VPIN] Estimating total volume from 1m Klines...")
+    # To avoid the slow AggTrades pre-scan, we use 1m Klines *only* for the volume estimate
+    # because bucket_size must be fixed for the indicator to be valid across time.
+    print("  [VPIN] Step 1: Sequential Volume Estimation (Fast 1m Klines)...")
     total_vol = 0
-    # Klines: [open_time, open, high, low, close, volume, close_time, quote_volume, ...]
-    # We only need column 5 (volume)
     for df_k, label in yield_vision_zips(base_url, "klines", clean_symbol, start_dt, end_dt, timeframe="1m", usecols=[5]):
         total_vol += pd.to_numeric(df_k.iloc[:, 0]).sum()
         del df_k
         gc.collect()
 
     if total_vol == 0:
-        return {"success": False, "message": "Volume data not found (Klines missing)."}
+        return {"success": False, "message": "Volume data not found."}
     
     bucket_size = total_vol / (total_days * buckets_per_day)
-    print(f"  [VPIN] Total Vol Est: {total_vol:,.0f} | Target Bucket Size: {bucket_size:,.2f}")
+    print(f"  [VPIN] Step 2: Sequential AggTrades processing | Target Bucket: {bucket_size:,.2f}")
 
-    # 2) MAIN PROCESSING: Faster Chunked Loop
-    vpin_data = []
-    # State tracking
-    curr_vol = 0
-    curr_buy = 0
-    curr_sell = 0
-    curr_open = None
-    curr_high = -float('inf')
-    curr_low = float('inf')
-    curr_ts = None
+    vpin_results = []
+    # Persistent state for VPIN calculation across months
+    state = {
+        'v_vol': 0.0, 'v_buy': 0.0, 'v_sell': 0.0,
+        'v_open': None, 'v_high': -float('inf'), 'v_low': float('inf'), 'v_ts': None,
+        'recent_imbalances': [] # For the rolling window
+    }
 
     for df_chunk, label in yield_vision_zips(base_url, "aggTrades", clean_symbol, start_dt, end_dt):
-        print(f"  [VPIN] Processing {label} ({len(df_chunk)} rows)...")
-        # Column indices: 1=price, 2=quantity, 5=timestamp, 6=is_buyer_maker
-        prices = pd.to_numeric(df_chunk.iloc[:, 1]).values
-        quants = pd.to_numeric(df_chunk.iloc[:, 2]).values
-        times = pd.to_datetime(pd.to_numeric(df_chunk.iloc[:, 5]), unit='ms')
-        is_maker = df_chunk.iloc[:, 6].values
+        print(f"  [VPIN] Processing {label}...")
+        # Extract columns manually for speed (price=1, quant=2, ts=5, is_maker=6)
+        prices_raw = pd.to_numeric(df_chunk.iloc[:, 1]).values
+        quants_raw = pd.to_numeric(df_chunk.iloc[:, 2]).values
+        times_raw = pd.to_numeric(df_chunk.iloc[:, 5]).values
+        makers_raw = df_chunk.iloc[:, 6].values
         
-        # Calculate buy/sell volume
-        buys = np.where(is_maker, 0, quants)
-        sells = np.where(is_maker, quants, 0)
+        for i in range(len(quants_raw)):
+            if state['v_open'] is None:
+                state['v_open'] = prices_raw[i]
+                state['v_ts'] = pd.to_datetime(times_raw[i], unit='ms')
 
-        # Batch iteration (much faster than iterrows)
-        for i in range(len(quants)):
-            if curr_open is None:
-                curr_open = prices[i]
-                curr_ts = times[i]
+            state['v_high'] = max(state['v_high'], prices_raw[i])
+            state['v_low'] = min(state['v_low'], prices_raw[i])
+            state['v_vol'] += quants_raw[i]
             
-            curr_high = max(curr_high, prices[i])
-            curr_low = min(curr_low, prices[i])
-            curr_vol += quants[i]
-            curr_buy += buys[i]
-            curr_sell += sells[i]
+            if makers_raw[i]: # Sell
+                state['v_sell'] += quants_raw[i]
+            else: # Buy
+                state['v_buy'] += quants_raw[i]
 
-            if curr_vol >= bucket_size:
-                vpin_data.append({
-                    'timestamp': curr_ts, 'open': curr_open, 'high': curr_high,
-                    'low': curr_low, 'close': prices[i], 'volume': curr_vol,
-                    'buy_vol': curr_buy, 'sell_vol': curr_sell,
-                    'imbalance': abs(curr_buy - curr_sell)
+            if state['v_vol'] >= bucket_size:
+                # Close bucket
+                imbalance = abs(state['v_buy'] - state['v_sell'])
+                state['recent_imbalances'].append(imbalance)
+                
+                # Maintain window size (buckets_per_day)
+                if len(state['recent_imbalances']) > buckets_per_day:
+                    state['recent_imbalances'].pop(0)
+
+                # Calculate VPIN if window is full
+                vpin_val = None
+                if len(state['recent_imbalances']) == buckets_per_day:
+                    vpin_val = sum(state['recent_imbalances']) / (buckets_per_day * bucket_size)
+
+                vpin_results.append({
+                    'timestamp': state['v_ts'], 'open': state['v_open'], 'high': state['v_high'],
+                    'low': state['v_low'], 'close': prices_raw[i], 'volume': state['v_vol'],
+                    'vpin': vpin_val
                 })
-                # Reset
-                curr_vol, curr_buy, curr_sell = 0, 0, 0
-                curr_open, curr_high, curr_low = None, -float('inf'), float('inf')
+                
+                # Reset bucket state
+                state['v_vol'], state['v_buy'], state['v_sell'] = 0.0, 0.0, 0.0
+                state['v_open'], state['v_high'], state['v_low'] = None, -float('inf'), float('inf')
         
+        # Immediate cleanup of the monthly chunk
         del df_chunk
         gc.collect()
 
-    if not vpin_data:
-        return {"success": False, "message": "No buckets generated. Check data range."}
+    if not vpin_results:
+        return {"success": False, "message": "Buckets were not formed."}
 
-    df_vpin = pd.DataFrame(vpin_data)
-    df_vpin['vpin'] = df_vpin['imbalance'].rolling(window=buckets_per_day).mean() / bucket_size
-    
-    print(f"[CLOUD] VPIN Complete: {len(df_vpin)} buckets.")
-    csv_string = df_vpin.to_csv(index=False)
+    df_final = pd.DataFrame(vpin_results)
+    print(f"[CLOUD] VPIN Complete: {len(df_final)} buckets.")
+    csv_string = df_final.to_csv(index=False)
 
     hf_url = None
     if hf_repo and hf_token:
@@ -422,8 +428,7 @@ def fetch_vpin_cloud(symbol: str, start_date: str, end_date: str, buckets_per_da
         success, url_or_err = upload_to_hf(csv_string, filename, hf_repo, hf_token)
         if success: hf_url = url_or_err
 
-    preview = df_vpin.tail(100).to_dict(orient="records")
-    return {"success": True, "row_count": len(df_vpin), "preview": preview, "csv_data": csv_string, "hf_url": hf_url}
+    return {"success": True, "row_count": len(df_final), "preview": vpin_results[-100:], "csv_data": csv_string, "hf_url": hf_url}
 
 
 @app.local_entrypoint()
