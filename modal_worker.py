@@ -69,18 +69,24 @@ def yield_vision_zips(base_url, data_type, clean_symbol, start_dt, end_dt, kline
             try:
                 res = requests.get(url, timeout=30)
                 if res.status_code == 200:
-                    with zipfile.ZipFile(io.BytesIO(res.content)) as z:
-                        namelist = z.namelist()
-                        if not namelist:
-                            print(f"  [SKIP] {url}: Empty ZIP")
-                            continue
-                        with z.open(namelist[0]) as f:
-                            df = pd.read_csv(f, header=None, usecols=usecols)
-                            if not str(df.iloc[0, 0]).isdigit():
-                                df = df.iloc[1:].reset_index(drop=True)
-                            yield df, m_str if 'm_str' in locals() else d_str
-                            monthly_done.append(current_month)
-                            print(f"  [OK] Month {m_str}: {len(df)} rows")
+                    if len(res.content) < 100:
+                        print(f"  [SKIP] {url}: File too small ({len(res.content)} bytes)")
+                        continue
+                    try:
+                        with zipfile.ZipFile(io.BytesIO(res.content)) as z:
+                            namelist = z.namelist()
+                            if not namelist:
+                                print(f"  [SKIP] {url}: No files inside ZIP")
+                                continue
+                            with z.open(namelist[0]) as f:
+                                df = pd.read_csv(f, header=None, usecols=usecols)
+                                if not df.empty and not str(df.iloc[0, 0]).isdigit():
+                                    df = df.iloc[1:].reset_index(drop=True)
+                                yield df, m_str
+                                monthly_done.append(current_month)
+                                print(f"  [OK] Month {m_str}: {len(df)} rows")
+                    except zipfile.BadZipFile:
+                        print(f"  [ERR] {url}: Invalid ZIP file content")
                 else:
                     print(f"  [SKIP] Month {m_str}: HTTP {res.status_code}")
             except Exception as e:
