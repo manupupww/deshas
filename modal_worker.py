@@ -142,7 +142,7 @@ def fetch_klines_cloud(symbol: str, timeframe: str, start_date: str, end_date: s
     return {"success": True, "row_count": len(raw), "preview": preview, "csv_data": csv_string, "hf_url": hf_url}
 
 
-@app.function(image=image, timeout=996400, cpu=1.0, memory=31200)
+@app.function(image=image, timeout=86400, cpu=1.0, memory=51200)
 def fetch_aggtrades_cloud(symbol: str, start_date: str, end_date: str, hf_repo: str = None, hf_token: str = None):
     """Download AggTrades in the cloud."""
     print(f"[CLOUD] AggTrades: {symbol} | {start_date} -> {end_date}")
@@ -221,7 +221,7 @@ def fetch_liquidations_cloud(symbol: str, start_date: str, end_date: str, hf_rep
     return {"success": True, "row_count": len(raw), "preview": preview, "csv_data": csv_string, "hf_url": hf_url}
 
 
-@app.function(image=image, timeout=86400, cpu=1.0, memory=51200)
+@app.function(image=image, timeout=86400, cpu=1.0, memory=31200)
 def fetch_dollar_bars_cloud(symbol: str, start_date: str, end_date: str, threshold: float = 1_000_000, hf_repo: str = None, hf_token: str = None):
     """Download AggTrades and generate Dollar Bars in the cloud."""
     print(f"[CLOUD] Dollar Bars: {symbol} | {start_date} -> {end_date} | Threshold: {threshold}")
