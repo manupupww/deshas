@@ -150,16 +150,18 @@ function App() {
           </select>
         </div>
 
-        <div className="form-group">
-          <label>Intervalas (Timeframe)</label>
-          <select
-            className="form-control"
-            value={interval}
-            onChange={e => setInterval(e.target.value)}
-          >
-            {intervals.map(i => <option key={i} value={i}>{i}</option>)}
-          </select>
-        </div>
+        {['Klines (OHLCV)', 'Time-Series Aggregator (Cloud)'].includes(dataType) && (
+          <div className="form-group">
+            <label>Intervalas (Timeframe)</label>
+            <select
+              className="form-control"
+              value={interval}
+              onChange={e => setInterval(e.target.value)}
+            >
+              {intervals.map(i => <option key={i} value={i}>{i}</option>)}
+            </select>
+          </div>
+        )}
 
         <div className="form-group">
           <label>Duomenų tipas</label>
@@ -202,7 +204,7 @@ function App() {
               onChange={e => setDollarThreshold(Number(e.target.value))}
               step="10"
             />
-            <small style={{color: 'var(--text-secondary)', fontSize: '0.75rem'}}>Rekomenduojama: 50-100</small>
+            <small style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>Rekomenduojama: 50-100</small>
           </div>
         )}
 
