@@ -345,6 +345,9 @@ def fetch_vpin_cloud(symbol: str, start_date: str, end_date: str, buckets_per_da
     Download AggTrades and calculate VPIN.
     Strictly sequential processing: one month at a time.
     """
+    import numpy as np
+    import pandas as pd
+    import gc
     print(f"[CLOUD] VPIN (Strict Sequential): {symbol} | {start_date} -> {end_date} | Buckets/Day: {buckets_per_day}")
     clean_symbol = symbol.replace("/", "").replace(":", "")
     base_url = "https://data.binance.vision/data/futures/um"
