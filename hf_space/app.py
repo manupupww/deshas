@@ -9,6 +9,10 @@ from pydantic import BaseModel
 import ccxt
 from typing import Optional
 import modal
+from dotenv import load_dotenv
+
+# Load .env if present
+load_dotenv()
 
 app = FastAPI(title="Binance Data Dashboard API")
 
@@ -51,7 +55,14 @@ def get_symbols():
         symbols = sorted(list(markets.keys()))
         return {"symbols": symbols}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Warning: Binance API blocked or error: {e}. Using fallback symbols.")
+        # Fallback symbols if Binance blocks the IP (common on HF Spaces)
+        fallback = [
+            "BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT",
+            "ADA/USDT", "AVAX/USDT", "DOGE/USDT", "DOT/USDT", "MATIC/USDT",
+            "LINK/USDT", "LTC/USDT", "BCH/USDT", "NEAR/USDT", "UNI/USDT"
+        ]
+        return {"symbols": sorted(fallback)}
 
 @app.post("/api/download")
 def download_data(request: DownloadRequest):
@@ -86,8 +97,8 @@ def download_data(request: DownloadRequest):
             result = fn.remote(request.symbol, request.start_date, request.end_date, hf_repo, hf_token)
 
         elif request.data_type == 'Dollar Bars (ML Ready)':
-            print(f"[CLOUD] Calling fetch_dollar_bars_cloud (threshold: {request.threshold})...")
-            fn = modal.Function.from_name("binance-data-dashboard", "fetch_dollar_bars_cloud")
+            print(f"[CLOUD] Calling fetch_dollar_bars_parallel (threshold: {request.threshold})...")
+            fn = modal.Function.from_name("binance-data-dashboard", "fetch_dollar_bars_parallel")
             result = fn.remote(request.symbol, request.start_date, request.end_date, request.threshold, hf_repo, hf_token)
 
         else:

@@ -86,9 +86,12 @@ def download_data(request: DownloadRequest):
             result = fn.remote(request.symbol, request.start_date, request.end_date)
 
         elif request.data_type == 'Dollar Bars (ML Ready)':
-            print(f"[CLOUD] Calling fetch_dollar_bars_cloud (threshold: {request.threshold})...")
-            fn = modal.Function.from_name("binance-data-dashboard", "fetch_dollar_bars_cloud")
-            result = fn.remote(request.symbol, request.start_date, request.end_date, request.threshold)
+            print(f"[CLOUD] Calling fetch_dollar_bars_parallel (threshold: {request.threshold})...")
+            fn = modal.Function.from_name("binance-data-dashboard", "fetch_dollar_bars_parallel")
+            # Pass HF secrets from environment
+            hf_repo = os.getenv("HUGGINGFACE_REPO", "Vycka12/Base")
+            hf_token = os.getenv("HUGGINGFACE_TOKEN")
+            result = fn.remote(request.symbol, request.start_date, request.end_date, request.threshold, hf_repo, hf_token)
 
         else:
             raise HTTPException(status_code=400, detail="Unknown data type.")
