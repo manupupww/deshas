@@ -11,7 +11,7 @@ from dateutil.relativedelta import relativedelta
 
 # Modal app
 app = modal.App("binance-data-dashboard")
-image = modal.Image.debian_slim().pip_install("pandas", "requests", "python-dateutil", "ccxt", "huggingface_hub")
+image = modal.Image.debian_slim().pip_install("pandas", "requests", "python-dateutil", "ccxt", "huggingface_hub", "numpy")
 
 def upload_to_hf(content_or_path, filename, repo_id, token, is_file=False):
     """Uploads content or a file directly to Hugging Face repository."""
@@ -70,11 +70,15 @@ def yield_vision_zips(base_url, data_type, clean_symbol, start_dt, end_dt, kline
                 res = requests.get(url, timeout=30)
                 if res.status_code == 200:
                     with zipfile.ZipFile(io.BytesIO(res.content)) as z:
-                        with z.open(z.namelist()[0]) as f:
+                        namelist = z.namelist()
+                        if not namelist:
+                            print(f"  [SKIP] {url}: Empty ZIP")
+                            continue
+                        with z.open(namelist[0]) as f:
                             df = pd.read_csv(f, header=None, usecols=usecols)
                             if not str(df.iloc[0, 0]).isdigit():
                                 df = df.iloc[1:].reset_index(drop=True)
-                            yield df, m_str
+                            yield df, m_str if 'm_str' in locals() else d_str
                             monthly_done.append(current_month)
                             print(f"  [OK] Month {m_str}: {len(df)} rows")
                 else:
