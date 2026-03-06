@@ -38,12 +38,9 @@ def upload_to_hf(csv_content, filename, repo_id, token):
 
 def download_vision_zips(base_url, data_type, clean_symbol, start_dt, end_dt, klines_tf=None):
     """
-    Universal Binance Vision downloader.
-    Downloads monthly archives first, then fills gaps with daily archives.
-    Works for: aggTrades, liquidationOrders, klines/{tf}
+    Universal Binance Vision downloader (Generator).
+    Yields monthly/daily DataFrames one by one to save RAM.
     """
-    all_dfs = []
-
     # Build the path segment
     if klines_tf:
         path_segment = f"klines/{clean_symbol}/{klines_tf}"
@@ -68,9 +65,9 @@ def download_vision_zips(base_url, data_type, clean_symbol, start_dt, end_dt, kl
                             df = pd.read_csv(f, header=None)
                             if not str(df.iloc[0, 0]).isdigit():
                                 df = df.iloc[1:].reset_index(drop=True)
-                            all_dfs.append(df)
+                            yield df
                             monthly_done.append(current_month)
-                            print(f"  [OK] Month {m_str}: {len(df)} rows")
+                            print(f"  [OK] Month {m_str}: {len(df)} rows yielded")
                 else:
                     print(f"  [SKIP] Month {m_str}: HTTP {res.status_code}")
             except Exception as e:
@@ -95,14 +92,11 @@ def download_vision_zips(base_url, data_type, clean_symbol, start_dt, end_dt, kl
                             df = pd.read_csv(f, header=None)
                             if not str(df.iloc[0, 0]).isdigit():
                                 df = df.iloc[1:].reset_index(drop=True)
-                            all_dfs.append(df)
+                            yield df
+                            print(f"  [OK] Day {d_str}: {len(df)} rows yielded")
             except:
                 pass
         temp_date += timedelta(days=1)
-
-    if all_dfs:
-        return pd.concat(all_dfs, ignore_index=True)
-    return pd.DataFrame()
 
 
 # ============================================================
@@ -118,15 +112,21 @@ def fetch_klines_cloud(symbol: str, timeframe: str, start_date: str, end_date: s
     start_dt = datetime.strptime(start_date, "%Y-%m-%d")
     end_dt = datetime.strptime(end_date, "%Y-%m-%d")
 
-    raw = download_vision_zips(base_url, "klines", clean_symbol, start_dt, end_dt, klines_tf=timeframe)
-    if raw.empty:
+    # Use generator to save RAM
+    all_chunks = []
+    for chunk in download_vision_zips(base_url, "klines", clean_symbol, start_dt, end_dt, klines_tf=timeframe):
+        # Basic filtering to reduce size immediately
+        chunk = chunk.iloc[:, :6]
+        chunk.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+        chunk['timestamp'] = pd.to_datetime(pd.to_numeric(chunk['timestamp']), unit='ms')
+        chunk = chunk[(chunk['timestamp'] >= pd.to_datetime(start_dt)) &
+                      (chunk['timestamp'] <= pd.to_datetime(end_dt) + timedelta(days=1))]
+        all_chunks.append(chunk)
+
+    if not all_chunks:
         return {"success": False, "message": "Duomenu nerasta."}
 
-    raw = raw.iloc[:, :6]
-    raw.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
-    raw['timestamp'] = pd.to_datetime(pd.to_numeric(raw['timestamp']), unit='ms')
-    raw = raw[(raw['timestamp'] >= pd.to_datetime(start_dt)) &
-              (raw['timestamp'] <= pd.to_datetime(end_dt) + timedelta(days=1))]
+    raw = pd.concat(all_chunks, ignore_index=True)
     raw = raw.sort_values('timestamp').reset_index(drop=True)
 
     print(f"[CLOUD] Klines done: {len(raw)} rows")
@@ -151,14 +151,19 @@ def fetch_aggtrades_cloud(symbol: str, start_date: str, end_date: str, hf_repo: 
     start_dt = datetime.strptime(start_date, "%Y-%m-%d")
     end_dt = datetime.strptime(end_date, "%Y-%m-%d")
 
-    raw = download_vision_zips(base_url, "aggTrades", clean_symbol, start_dt, end_dt)
-    if raw.empty:
+    # Use generator to save RAM
+    all_chunks = []
+    for chunk in download_vision_zips(base_url, "aggTrades", clean_symbol, start_dt, end_dt):
+        chunk.columns = ['agg_trade_id', 'price', 'quantity', 'first_trade_id', 'last_trade_id', 'timestamp', 'is_buyer_maker']
+        chunk['timestamp'] = pd.to_datetime(pd.to_numeric(chunk['timestamp']), unit='ms')
+        chunk = chunk[(chunk['timestamp'] >= pd.to_datetime(start_dt)) &
+                      (chunk['timestamp'] <= pd.to_datetime(end_dt) + timedelta(days=1))]
+        all_chunks.append(chunk)
+
+    if not all_chunks:
         return {"success": False, "message": "Duomenu nerasta."}
 
-    raw.columns = ['agg_trade_id', 'price', 'quantity', 'first_trade_id', 'last_trade_id', 'timestamp', 'is_buyer_maker']
-    raw['timestamp'] = pd.to_datetime(pd.to_numeric(raw['timestamp']), unit='ms')
-    raw = raw[(raw['timestamp'] >= pd.to_datetime(start_dt)) &
-              (raw['timestamp'] <= pd.to_datetime(end_dt) + timedelta(days=1))]
+    raw = pd.concat(all_chunks, ignore_index=True)
     raw = raw.sort_values('timestamp').reset_index(drop=True)
 
     print(f"[CLOUD] AggTrades done: {len(raw)} rows")
@@ -183,19 +188,28 @@ def fetch_liquidations_cloud(symbol: str, start_date: str, end_date: str, hf_rep
     start_dt = datetime.strptime(start_date, "%Y-%m-%d")
     end_dt = datetime.strptime(end_date, "%Y-%m-%d")
 
-    raw = download_vision_zips(base_url, "liquidationOrders", clean_symbol, start_dt, end_dt)
-    if raw.empty:
+    # Use generator to save RAM
+    all_chunks = []
+    for chunk in download_vision_zips(base_url, "liquidationOrders", clean_symbol, start_dt, end_dt):
+        chunk.columns = ['symbol', 'side', 'order_type', 'time_in_force', 'original_quantity', 'price',
+                       'average_price', 'order_status', 'last_fill_quantity', 'accumulated_fill_quantity', 'timestamp']
+        chunk['timestamp'] = pd.to_datetime(pd.to_numeric(chunk['timestamp']), unit='ms')
+        chunk = chunk[(chunk['timestamp'] >= pd.to_datetime(start_dt)) &
+                      (chunk['timestamp'] <= pd.to_datetime(end_dt) + timedelta(days=1))]
+        all_chunks.append(chunk)
+
+    if not all_chunks:
         return {"success": False, "message": "Duomenu nerasta."}
 
-    raw.columns = ['symbol', 'side', 'order_type', 'time_in_force', 'original_quantity', 'price',
-                   'average_price', 'order_status', 'last_fill_quantity', 'accumulated_fill_quantity', 'timestamp']
-    raw['timestamp'] = pd.to_datetime(pd.to_numeric(raw['timestamp']), unit='ms')
-    raw = raw[(raw['timestamp'] >= pd.to_datetime(start_dt)) &
-              (raw['timestamp'] <= pd.to_datetime(end_dt) + timedelta(days=1))]
+    raw = pd.concat(all_chunks, ignore_index=True)
     raw = raw.sort_values('timestamp').reset_index(drop=True)
 
     print(f"[CLOUD] Liquidations done: {len(raw)} rows")
     csv_string = raw.to_csv(index=False)
+
+    import gc
+    del all_chunks
+    gc.collect()
 
     hf_url = None
     if hf_repo and hf_token:
@@ -216,56 +230,65 @@ def fetch_dollar_bars_cloud(symbol: str, start_date: str, end_date: str, thresho
     start_dt = datetime.strptime(start_date, "%Y-%m-%d")
     end_dt = datetime.strptime(end_date, "%Y-%m-%d")
 
-    raw = download_vision_zips(base_url, "aggTrades", clean_symbol, start_dt, end_dt)
-    if raw.empty:
-        return {"success": False, "message": "AggTrades nerasta, Dollar Bars sugeneruoti nepavyko."}
-
-    raw.columns = ['agg_trade_id', 'price', 'quantity', 'first_trade_id', 'last_trade_id', 'timestamp', 'is_buyer_maker']
-    raw['timestamp'] = pd.to_datetime(pd.to_numeric(raw['timestamp']), unit='ms')
-    raw = raw[(raw['timestamp'] >= pd.to_datetime(start_dt)) &
-              (raw['timestamp'] <= pd.to_datetime(end_dt) + timedelta(days=1))]
-    raw = raw.sort_values('timestamp').reset_index(drop=True)
-    raw['price'] = pd.to_numeric(raw['price'])
-    raw['quantity'] = pd.to_numeric(raw['quantity'])
-    raw['dollar_value'] = raw['price'] * raw['quantity']
-
-    print(f"[CLOUD] AggTrades loaded: {len(raw)} rows. Generating Dollar Bars...")
-
-    # Generate Dollar Bars
+    # Generate Dollar Bars using generator for RAM efficiency
     bars = []
     current_sum = 0.0
     b_open, b_high, b_low, b_vol, b_ts = None, -float('inf'), float('inf'), 0.0, None
 
-    for _, row in raw.iterrows():
-        if b_open is None:
-            b_open = row['price']
-            b_ts = row['timestamp']
-        b_high = max(b_high, row['price'])
-        b_low = min(b_low, row['price'])
-        b_vol += row['quantity']
-        current_sum += row['dollar_value']
+    import gc
+    for chunk in download_vision_zips(base_url, "aggTrades", clean_symbol, start_dt, end_dt):
+        chunk.columns = ['agg_trade_id', 'price', 'quantity', 'first_trade_id', 'last_trade_id', 'timestamp', 'is_buyer_maker']
+        chunk['timestamp'] = pd.to_datetime(pd.to_numeric(chunk['timestamp']), unit='ms')
+        chunk = chunk[(chunk['timestamp'] >= pd.to_datetime(start_dt)) &
+                      (chunk['timestamp'] <= pd.to_datetime(end_dt) + timedelta(days=1))]
+        if chunk.empty: continue
+        
+        chunk = chunk.sort_values('timestamp')
+        chunk['price'] = pd.to_numeric(chunk['price'])
+        chunk['quantity'] = pd.to_numeric(chunk['quantity'])
+        chunk['dollar_value'] = chunk['price'] * chunk['quantity']
 
-        if current_sum >= threshold:
-            bars.append({
-                'timestamp': b_ts, 'open': b_open, 'high': b_high,
-                'low': b_low, 'close': row['price'], 'volume': b_vol,
-                'dollar_volume': current_sum
-            })
-            current_sum = 0.0
-            b_open, b_high, b_low, b_vol = None, -float('inf'), float('inf'), 0.0
+        for _, row in chunk.iterrows():
+            if b_open is None:
+                b_open = row['price']
+                b_ts = row['timestamp']
+            
+            b_high = max(b_high, row['price'])
+            b_low = min(b_low, row['price'])
+            b_vol += row['quantity']
+            current_sum += row['dollar_value']
 
-    result_df = pd.DataFrame(bars)
-    print(f"[CLOUD] Dollar Bars done: {len(result_df)} bars")
-    csv_string = result_df.to_csv(index=False)
+            if current_sum >= threshold:
+                bars.append({
+                    'timestamp': b_ts,
+                    'open': b_open,
+                    'high': b_high,
+                    'low': b_low,
+                    'close': row['price'],
+                    'volume': b_vol
+                })
+                # Reset for next bar
+                current_sum = 0.0
+                b_open, b_high, b_low, b_vol, b_ts = None, -float('inf'), float('inf'), 0.0, None
 
+        del chunk
+        gc.collect()
+
+    if not bars:
+        return {"success": False, "message": "Barai nesugeneruoti (per mazas volumenas)."}
+
+    raw = pd.DataFrame(bars)
+    print(f"[CLOUD] Dollar Bars done: {len(raw)} bars")
+    csv_string = raw.to_csv(index=False)
+    
     hf_url = None
     if hf_repo and hf_token:
         filename = f"{clean_symbol}_{start_date}_{end_date}_dollarBars_{int(threshold)}.csv"
         success, url_or_err = upload_to_hf(csv_string, filename, hf_repo, hf_token)
         if success: hf_url = url_or_err
 
-    preview = result_df.tail(100).to_dict(orient="records")
-    return {"success": True, "row_count": len(result_df), "preview": preview, "csv_data": csv_string, "hf_url": hf_url}
+    preview = raw.tail(100).to_dict(orient="records")
+    return {"success": True, "row_count": len(raw), "preview": preview, "csv_data": csv_string, "hf_url": hf_url}
 
 
 @app.function(image=image, timeout=7200, cpu=1.0, memory=51200)
@@ -280,69 +303,66 @@ def fetch_vpin_cloud(symbol: str, start_date: str, end_date: str, buckets_per_da
     start_dt = datetime.strptime(start_date, "%Y-%m-%d")
     end_dt = datetime.strptime(end_date, "%Y-%m-%d")
 
-    raw = download_vision_zips(base_url, "aggTrades", clean_symbol, start_dt, end_dt)
-    if raw.empty:
+    # Calculate VPIN using streaming generator for RAM efficiency
+    # 1) First pass: Calculate total volume to determine bucket size
+    print("[CLOUD] Calculating total volume for bucket size...")
+    total_vol = 0
+    total_days = (end_dt - start_dt).days + 1
+    
+    for chunk in download_vision_zips(base_url, "aggTrades", clean_symbol, start_dt, end_dt):
+        total_vol += pd.to_numeric(chunk.iloc[:, 2]).sum()
+        del chunk
+
+    if total_vol == 0:
         return {"success": False, "message": "AggTrades nerasta, VPIN paskaiciuoti nepavyko."}
 
-    raw.columns = ['agg_trade_id', 'price', 'quantity', 'first_trade_id', 'last_trade_id', 'timestamp', 'is_buyer_maker']
-    raw['timestamp'] = pd.to_datetime(pd.to_numeric(raw['timestamp']), unit='ms')
-    raw = raw[(raw['timestamp'] >= pd.to_datetime(start_dt)) &
-              (raw['timestamp'] <= pd.to_datetime(end_dt) + timedelta(days=1))]
-    raw = raw.sort_values('timestamp').reset_index(drop=True)
-    raw['price'] = pd.to_numeric(raw['price'])
-    raw['quantity'] = pd.to_numeric(raw['quantity'])
-    
-    # Identify Buy/Sell volume (is_buyer_maker=True means Sell Trade in Binance terms)
-    # CSV values come as strings 'True'/'False' or 'true'/'false', need proper conversion
-    raw['is_buyer_maker'] = raw['is_buyer_maker'].astype(str).str.strip().str.lower() == 'true'
-    raw['buy_vol'] = raw['quantity'].where(~raw['is_buyer_maker'], 0.0)
-    raw['sell_vol'] = raw['quantity'].where(raw['is_buyer_maker'], 0.0)
+    bucket_size = total_vol / (max(1, total_days) * buckets_per_day)
+    print(f"[CLOUD] Bucket size: {bucket_size:.2f} units. Starting VPIN calculation...")
 
-    print(f"[CLOUD] Processing {len(raw)} trades for VPIN...")
-
-    # Calculate total volume and bucket size
-    total_days = (end_dt - start_dt).days + 1
-    total_vol = raw['quantity'].sum()
-    bucket_size = total_vol / (total_days * buckets_per_day)
-    
-    # Process Buckets
     vpin_data = []
-    curr_b_vol = 0
-    curr_b_buy = 0
-    curr_b_sell = 0
-    curr_b_open = None
-    curr_b_high = -float('inf')
-    curr_b_low = float('inf')
-    curr_b_ts = None
+    curr_b_vol, curr_b_buy, curr_b_sell = 0, 0, 0
+    curr_b_open, curr_b_high, curr_b_low, curr_b_ts = None, -float('inf'), float('inf'), None
 
-    for _, row in raw.iterrows():
-        if curr_b_open is None:
-            curr_b_open = row['price']
-            curr_b_ts = row['timestamp']
+    import gc
+    for chunk in download_vision_zips(base_url, "aggTrades", clean_symbol, start_dt, end_dt):
+        chunk.columns = ['agg_trade_id', 'price', 'quantity', 'first_trade_id', 'last_trade_id', 'timestamp', 'is_buyer_maker']
+        chunk['timestamp'] = pd.to_datetime(pd.to_numeric(chunk['timestamp']), unit='ms')
+        chunk = chunk[(chunk['timestamp'] >= pd.to_datetime(start_dt)) &
+                      (chunk['timestamp'] <= pd.to_datetime(end_dt) + timedelta(days=1))]
+        if chunk.empty: continue
         
-        curr_b_high = max(curr_b_high, row['price'])
-        curr_b_low = min(curr_b_low, row['price'])
-        curr_b_vol += row['quantity']
-        curr_b_buy += row['buy_vol']
-        curr_b_sell += row['sell_vol']
+        chunk = chunk.sort_values('timestamp')
+        chunk['price'] = pd.to_numeric(chunk['price'])
+        chunk['quantity'] = pd.to_numeric(chunk['quantity'])
+        
+        # Proper is_buyer_maker conversion
+        chunk['is_buyer_maker'] = chunk['is_buyer_maker'].astype(str).str.strip().str.lower() == 'true'
+        chunk['buy_vol'] = chunk['quantity'].where(~chunk['is_buyer_maker'], 0.0)
+        chunk['sell_vol'] = chunk['quantity'].where(chunk['is_buyer_maker'], 0.0)
 
-        if curr_b_vol >= bucket_size:
-            # Absolute imbalance for this bucket
-            imbalance = abs(curr_b_buy - curr_b_sell)
-            vpin_data.append({
-                'timestamp': curr_b_ts,
-                'open': curr_b_open,
-                'high': curr_b_high,
-                'low': curr_b_low,
-                'close': row['price'],
-                'volume': curr_b_vol,
-                'buy_vol': curr_b_buy,
-                'sell_vol': curr_b_sell,
-                'imbalance': imbalance
-            })
-            # Reset
-            curr_b_vol, curr_b_buy, curr_b_sell = 0, 0, 0
-            curr_b_open, curr_b_high, curr_b_low = None, -float('inf'), float('inf')
+        for _, row in chunk.iterrows():
+            if curr_b_open is None:
+                curr_b_open = row['price']
+                curr_b_ts = row['timestamp']
+            
+            curr_b_high = max(curr_b_high, row['price'])
+            curr_b_low = min(curr_b_low, row['price'])
+            curr_b_vol += row['quantity']
+            curr_b_buy += row['buy_vol']
+            curr_b_sell += row['sell_vol']
+
+            if curr_b_vol >= bucket_size:
+                vpin_data.append({
+                    'timestamp': curr_b_ts, 'open': curr_b_open, 'high': curr_b_high,
+                    'low': curr_b_low, 'close': row['price'], 'volume': curr_b_vol,
+                    'buy_vol': curr_b_buy, 'sell_vol': curr_b_sell, 
+                    'imbalance': abs(curr_b_buy - curr_b_sell)
+                })
+                curr_b_vol, curr_b_buy, curr_b_sell = 0, 0, 0
+                curr_b_open, curr_b_high, curr_b_low = None, -float('inf'), float('inf')
+        
+        del chunk
+        gc.collect()
 
     df_vpin = pd.DataFrame(vpin_data)
     
