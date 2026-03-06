@@ -359,7 +359,7 @@ def fetch_vpin_cloud(symbol: str, start_date: str, end_date: str, buckets_per_da
     # because bucket_size must be fixed for the indicator to be valid across time.
     print("  [VPIN] Step 1: Sequential Volume Estimation (Fast 1m Klines)...")
     total_vol = 0
-    for df_k, label in yield_vision_zips(base_url, "klines", clean_symbol, start_dt, end_dt, timeframe="1m", usecols=[5]):
+    for df_k, label in yield_vision_zips(base_url, "klines", clean_symbol, start_dt, end_dt, klines_tf="1m", usecols=[5]):
         total_vol += pd.to_numeric(df_k.iloc[:, 0]).sum()
         del df_k
         gc.collect()
