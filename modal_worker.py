@@ -370,59 +370,81 @@ def fetch_vpin_cloud(symbol: str, start_date: str, end_date: str, buckets_per_da
     vpin_results = []
     # Persistent state for VPIN calculation across months
     state = {
-        'v_vol': 0.0, 'v_buy': 0.0, 'v_sell': 0.0,
-        'v_open': None, 'v_high': -float('inf'), 'v_low': float('inf'), 'v_ts': None,
-        'recent_imbalances': [] # For the rolling window
+        'residual_vol': 0.0, 'residual_buy': 0.0, 'residual_sell': 0.0,
+        'current_bucket_id': 0,
+        'recent_imbalances': [] # Rolling window of imbalances
     }
 
     for df_chunk, label in yield_vision_zips(base_url, "aggTrades", clean_symbol, start_dt, end_dt):
-        print(f"  [VPIN] Processing {label}...")
-        # Extract columns manually for speed (price=1, quant=2, ts=5, is_maker=6)
-        prices_raw = pd.to_numeric(df_chunk.iloc[:, 1]).values
-        quants_raw = pd.to_numeric(df_chunk.iloc[:, 2]).values
-        times_raw = pd.to_numeric(df_chunk.iloc[:, 5]).values
-        makers_raw = df_chunk.iloc[:, 6].values
+        row_count = len(df_chunk)
+        print(f"  [VPIN] Processing {label} ({row_count:,.0f} rows)...")
         
-        for i in range(len(quants_raw)):
-            if state['v_open'] is None:
-                state['v_open'] = prices_raw[i]
-                state['v_ts'] = pd.to_datetime(times_raw[i], unit='ms')
-
-            state['v_high'] = max(state['v_high'], prices_raw[i])
-            state['v_low'] = min(state['v_low'], prices_raw[i])
-            state['v_vol'] += quants_raw[i]
-            
-            if makers_raw[i]: # Sell
-                state['v_sell'] += quants_raw[i]
-            else: # Buy
-                state['v_buy'] += quants_raw[i]
-
-            if state['v_vol'] >= bucket_size:
-                # Close bucket
-                imbalance = abs(state['v_buy'] - state['v_sell'])
+        # 1. Prepare data (Columns: 1=Price, 2=Qty, 5=TS, 6=IsMaker)
+        prices = pd.to_numeric(df_chunk.iloc[:, 1]).values
+        quants = pd.to_numeric(df_chunk.iloc[:, 2]).values
+        times = pd.to_numeric(df_chunk.iloc[:, 5]).values
+        is_maker = df_chunk.iloc[:, 6].values
+        
+        # Buy/Sell classification
+        buys = np.where(~is_maker, quants, 0.0)
+        sells = np.where(is_maker, quants, 0.0)
+        
+        # 2. Vectorized Bucket Assignment
+        cum_vol = np.cumsum(quants) + state['residual_vol']
+        bucket_ids = (cum_vol // bucket_size).astype(int)
+        
+        # 3. Aggregate by Bucket using Pandas (Vectorized & Fast)
+        df_work = pd.DataFrame({
+            'bid': bucket_ids, 'p': prices, 'q': quants, 
+            't': times, 'b': buys, 's': sells
+        })
+        
+        # Group by Bucket ID
+        grouped = df_work.groupby('bid')
+        aggs = grouped.agg({
+            't': 'first', 'p': ['first', 'max', 'min', 'last'],
+            'q': 'sum', 'b': 'sum', 's': 'sum'
+        })
+        aggs.columns = ['ts', 'open', 'high', 'low', 'close', 'vol', 'buy', 'sell']
+        
+        # 4. Handle Partial Buckets at month boundaries
+        # The last bucket ID in this chunk might be incomplete
+        last_bid = bucket_ids[-1]
+        is_complete = (grouped.size().index < last_bid).values
+        complete_buckets = aggs[is_complete].copy()
+        
+        # Process complete buckets
+        if not complete_buckets.empty:
+            for _, row in complete_buckets.iterrows():
+                imbalance = abs(row['buy'] - row['sell'])
                 state['recent_imbalances'].append(imbalance)
-                
-                # Maintain window size (buckets_per_day)
                 if len(state['recent_imbalances']) > buckets_per_day:
                     state['recent_imbalances'].pop(0)
-
-                # Calculate VPIN if window is full
+                
                 vpin_val = None
                 if len(state['recent_imbalances']) == buckets_per_day:
                     vpin_val = sum(state['recent_imbalances']) / (buckets_per_day * bucket_size)
-
-                vpin_results.append({
-                    'timestamp': state['v_ts'], 'open': state['v_open'], 'high': state['v_high'],
-                    'low': state['v_low'], 'close': prices_raw[i], 'volume': state['v_vol'],
-                    'vpin': vpin_val
-                })
                 
-                # Reset bucket state
-                state['v_vol'], state['v_buy'], state['v_sell'] = 0.0, 0.0, 0.0
-                state['v_open'], state['v_high'], state['v_low'] = None, -float('inf'), float('inf')
-        
-        # Immediate cleanup of the monthly chunk
-        del df_chunk
+                vpin_results.append({
+                    'timestamp': pd.to_datetime(row['ts'], unit='ms'),
+                    'open': row['open'], 'high': row['high'], 'low': row['low'],
+                    'close': row['close'], 'volume': row['vol'], 'vpin': vpin_val
+                })
+
+        # Save residue for next month
+        # Residue is the data from the last (incomplete) bucket ID
+        residue_mask = (bucket_ids == last_bid)
+        state['residual_vol'] = quants[residue_mask].sum()
+        state['residual_buy'] = buys[residue_mask].sum()
+        state['residual_sell'] = sells[residue_mask].sum()
+        # Note: Open/High/Low for residue would need more state if we wanted perfect OHLC accuracy
+        # but for VPIN the volumes are the primary concern.
+
+        # Heartbeat log to show activity
+        print(f"    [OK] Finished {label}. Buckets formed: {len(complete_buckets)}. Cumulative Buckets: {len(vpin_results)}")
+
+        # Immediate cleanup
+        del df_chunk, df_work, grouped, aggs, complete_buckets
         gc.collect()
 
     if not vpin_results:
