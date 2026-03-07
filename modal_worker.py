@@ -105,7 +105,7 @@ def download_vision_zips(base_url, data_type, clean_symbol, start_dt, end_dt, kl
 # CLOUD FUNCTIONS
 # ============================================================
 
-@app.function(image=image, timeout=86400, cpu=1.0, memory=10240, volumes={"/data": app_volume}, retries=0)
+@app.function(image=image, timeout=86400, cpu=1.0, memory=51200, volumes={"/data": app_volume}, retries=0)
 def fetch_klines_cloud(symbol: str, timeframe: str, start_date: str, end_date: str, hf_repo: str = None, hf_token: str = None):
     """Download Klines with Persistent Resume logic."""
     print(f"[CLOUD] Klines (Resume): {symbol} {timeframe} | {start_date} -> {end_date}")
@@ -161,7 +161,7 @@ def fetch_klines_cloud(symbol: str, timeframe: str, start_date: str, end_date: s
     return {"success": True, "hf_url": hf_url, "checkpointed": True}
 
 
-@app.function(image=image, timeout=86400, cpu=1.0, memory=10240, volumes={"/data": app_volume}, retries=0)
+@app.function(image=image, timeout=86400, cpu=1.0, memory=51200, volumes={"/data": app_volume}, retries=0)
 def fetch_aggtrades_cloud(symbol: str, start_date: str, end_date: str, hf_repo: str = None, hf_token: str = None):
     """Download AggTrades with Persistent Resume logic."""
     print(f"[CLOUD] AggTrades (Resume): {symbol} | {start_date} -> {end_date}")
@@ -211,7 +211,7 @@ def fetch_aggtrades_cloud(symbol: str, start_date: str, end_date: str, hf_repo: 
     return {"success": True, "hf_url": hf_url, "checkpointed": True}
 
 
-@app.function(image=image, timeout=86400, cpu=1.0, memory=10240, volumes={"/data": app_volume}, retries=0)
+@app.function(image=image, timeout=86400, cpu=1.0, memory=51200, volumes={"/data": app_volume}, retries=0)
 def fetch_liquidations_cloud(symbol: str, start_date: str, end_date: str, hf_repo: str = None, hf_token: str = None):
     """Download Liquidations with Persistent Resume logic."""
     print(f"[CLOUD] Liquidations (Resume): {symbol} | {start_date} -> {end_date}")
@@ -262,7 +262,7 @@ def fetch_liquidations_cloud(symbol: str, start_date: str, end_date: str, hf_rep
     return {"success": True, "hf_url": hf_url, "checkpointed": True}
 
 
-@app.function(image=image, timeout=86400, cpu=2.0, memory=20480, volumes={"/data": app_volume}, retries=0)
+@app.function(image=image, timeout=86400, cpu=2.0, memory=51200, volumes={"/data": app_volume}, retries=0)
 def fetch_dollar_bars_cloud(symbol: str, start_date: str, end_date: str, threshold: float = 1_000_000, hf_repo: str = None, hf_token: str = None):
     """Vectorized Dollar Bar generation with Persistent Resume logic."""
     print(f"[CLOUD] Dollar Bars (Resume): {symbol} | {start_date} -> {end_date} | Threshold: {threshold}")
@@ -338,7 +338,7 @@ def fetch_dollar_bars_cloud(symbol: str, start_date: str, end_date: str, thresho
     return {"success": True, "hf_url": hf_url, "checkpointed": True}
 
 
-@app.function(image=image, timeout=86400, cpu=2.0, memory=30720, volumes={"/data": app_volume}, retries=0)
+@app.function(image=image, timeout=86400, cpu=2.0, memory=51200, volumes={"/data": app_volume}, retries=0)
 def fetch_vpin_cloud(symbol: str, start_date: str, end_date: str, buckets_per_day: int = 50, hf_repo: str = None, hf_token: str = None):
     """Vectorized VPIN toxicity calculation with Persistent Resume logic."""
     print(f"[CLOUD] VPIN (Resume): {symbol} | {start_date} -> {end_date}")
