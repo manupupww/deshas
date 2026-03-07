@@ -150,18 +150,16 @@ function App() {
           </select>
         </div>
 
-        {['Klines (OHLCV)', 'Time-Series Aggregator (Cloud)'].includes(dataType) && (
-          <div className="form-group">
-            <label>Intervalas (Timeframe)</label>
-            <select
-              className="form-control"
-              value={interval}
-              onChange={e => setInterval(e.target.value)}
-            >
-              {intervals.map(i => <option key={i} value={i}>{i}</option>)}
-            </select>
-          </div>
-        )}
+        <div className="form-group">
+          <label>Intervalas (Timeframe)</label>
+          <select
+            className="form-control"
+            value={interval}
+            onChange={e => setInterval(e.target.value)}
+          >
+            {intervals.map(i => <option key={i} value={i}>{i}</option>)}
+          </select>
+        </div>
 
         <div className="form-group">
           <label>Duomenų tipas</label>
