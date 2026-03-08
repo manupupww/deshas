@@ -271,7 +271,7 @@ def fetch_dollar_bars_cloud(symbol: str, start_date: str, end_date: str, thresho
     start_dt = datetime.strptime(start_date, "%Y-%m-%d")
     end_dt = datetime.strptime(end_date, "%Y-%m-%d")
     
-    task_id = f"dbars_{clean_symbol}_{start_date}_{end_date}_{int(threshold)}"
+    task_id = f"dbars_v2_{clean_symbol}_{start_date}_{end_date}_{int(threshold)}"
     output_path = f"/data/{task_id}.csv"
     progress_path = f"/data/{task_id}.progress"
     state_path = f"/data/{task_id}.state"
