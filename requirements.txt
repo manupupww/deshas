@@ -1,0 +1,7 @@
+pandas
+pyarrow
+huggingface_hub
+websockets
+gradio
+python-dotenv
+asyncio
