@@ -331,10 +331,18 @@ def fetch_dollar_bars_cloud(symbol: str, start_date: str, end_date: str, thresho
                 high=('price', 'max'),
                 low=('price', 'min'),
                 close=('price', 'last'),
-                volume=('quantity', 'sum')
+                volume=('quantity', 'sum'),
+                dollar_volume=('dollar_value', 'sum')
             ).reset_index(drop=True)
             
-            bars.to_csv(output_path, mode='a' if not first else 'w', index=False, header=first)
+            # Convert timestamp to human readable datetime
+            bars['timestamp'] = pd.to_datetime(bars['timestamp'], unit='ms').dt.strftime('%Y-%m-%d %H:%M:%S.%f').str[:-3]
+            
+            # Select specific final columns to guarantee correct output format without headers
+            final_cols = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'dollar_volume']
+            bars = bars[final_cols]
+            
+            bars.to_csv(output_path, mode='a' if not first else 'w', index=False, header=False)
             first = False
             
         leftovers = leftovers_df[['timestamp', 'price', 'quantity', 'dollar_value']].copy()
