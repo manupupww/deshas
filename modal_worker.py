@@ -281,15 +281,21 @@ def fetch_dollar_bars_cloud(symbol: str, start_date: str, end_date: str, thresho
     b_open, b_high, b_low, b_ts = None, -1.0, float('inf'), None
     
     if os.path.exists(progress_path):
-        with open(progress_path, "r") as pf:
-            last_processed = datetime.strptime(pf.read().strip(), "%Y-%m-%d")
-        if os.path.exists(state_path):
-            import json
-            with open(state_path, "r") as sf:
-                state = json.load(sf)
-                curr_sum, curr_vol = state['sum'], state['vol']
-                b_open, b_high, b_low, b_ts = state['o'], state['h'], state['l'], state['ts']
-        print(f"  [RESUME] Resuming Dollar Bars after {last_processed.date()}")
+        if os.path.exists(output_path):
+            with open(progress_path, "r") as pf:
+                last_processed = datetime.strptime(pf.read().strip(), "%Y-%m-%d")
+            if os.path.exists(state_path):
+                import json
+                with open(state_path, "r") as sf:
+                    state = json.load(sf)
+                    curr_sum, curr_vol = state['sum'], state['vol']
+                    b_open, b_high, b_low, b_ts = state['o'], state['h'], state['l'], state['ts']
+            print(f"  [RESUME] Resuming Dollar Bars after {last_processed.date()}")
+        else:
+            os.remove(progress_path)
+            if os.path.exists(state_path):
+                os.remove(state_path)
+            print("  [RESET] Progress file found but output missing. Starting fresh.")
 
     first = not os.path.exists(output_path)
     
@@ -310,6 +316,12 @@ def fetch_dollar_bars_cloud(symbol: str, start_date: str, end_date: str, thresho
             b_low = min(b_low, row['price'])
             curr_vol += row['quantity']
             curr_sum += row['dollar_value']
+
+            if curr_sum >= threshold:
+                bars.append([b_ts, b_open, b_high, b_low, row['price'], curr_vol])
+                # Reset accumulators for next bar
+                curr_sum, curr_vol = 0.0, 0.0
+                b_open, b_high, b_low, b_ts = None, -1.0, float('inf'), None
 
         if bars:
             df_bars = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
