@@ -281,12 +281,28 @@ def fetch_dollar_bars_cloud(symbol: str, start_date: str, end_date: str, thresho
     leftovers = pd.DataFrame()
     
     if os.path.exists(progress_path):
+        # Force reset if old format (6 columns) detected in output file
         if os.path.exists(output_path):
-            with open(progress_path, "r") as pf:
-                last_processed = datetime.strptime(pf.read().strip(), "%Y-%m-%d")
-            if os.path.exists(state_path):
-                leftovers = pd.read_csv(state_path)
-            print(f"  [RESUME] Resuming Dollar Bars after {last_processed.date()}")
+            try:
+                # Check column count of the first line
+                with open(output_path, 'r') as f:
+                    first_line = f.readline().strip().split(',')
+                
+                # If it has 6 columns (old) or is missing headers we expect, we reset
+                if len(first_line) != 7:
+                    print(f"  [RESET] Old format detected ({len(first_line)} columns). Wiping stale data...")
+                    os.remove(output_path)
+                    if os.path.exists(progress_path): os.remove(progress_path)
+                    if os.path.exists(state_path): os.remove(state_path)
+                else:
+                    with open(progress_path, "r") as pf:
+                        last_processed = datetime.strptime(pf.read().strip(), "%Y-%m-%d")
+                    if os.path.exists(state_path):
+                        leftovers = pd.read_csv(state_path)
+                    print(f"  [RESUME] Resuming Dollar Bars after {last_processed.date()}")
+            except Exception as e:
+                print(f"  [RESET] Error checking format: {e}. Starting fresh.")
+                if os.path.exists(output_path): os.remove(output_path)
         else:
             os.remove(progress_path)
             if os.path.exists(state_path):
@@ -342,7 +358,7 @@ def fetch_dollar_bars_cloud(symbol: str, start_date: str, end_date: str, thresho
             final_cols = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'dollar_volume']
             bars = bars[final_cols]
             
-            bars.to_csv(output_path, mode='a' if not first else 'w', index=False, header=False)
+            bars.to_csv(output_path, mode='a' if not first else 'w', index=False, header=first)
             first = False
             
         leftovers = leftovers_df[['timestamp', 'price', 'quantity', 'dollar_value']].copy()
