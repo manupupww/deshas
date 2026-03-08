@@ -274,22 +274,18 @@ def fetch_dollar_bars_cloud(symbol: str, start_date: str, end_date: str, thresho
     task_id = f"dbars_{clean_symbol}_{start_date}_{end_date}_{int(threshold)}"
     output_path = f"/data/{task_id}.csv"
     progress_path = f"/data/{task_id}.progress"
-    state_path = f"/data/{task_id}.state" # Store partial bar state
+    state_path = f"/data/{task_id}.state"
     
     last_processed = None
-    curr_sum, curr_vol = 0.0, 0.0
-    b_open, b_high, b_low, b_ts = None, -1.0, float('inf'), None
+    # We will store leftover rows in a DataFrame
+    leftovers = pd.DataFrame()
     
     if os.path.exists(progress_path):
         if os.path.exists(output_path):
             with open(progress_path, "r") as pf:
                 last_processed = datetime.strptime(pf.read().strip(), "%Y-%m-%d")
             if os.path.exists(state_path):
-                import json
-                with open(state_path, "r") as sf:
-                    state = json.load(sf)
-                    curr_sum, curr_vol = state['sum'], state['vol']
-                    b_open, b_high, b_low, b_ts = state['o'], state['h'], state['l'], state['ts']
+                leftovers = pd.read_csv(state_path)
             print(f"  [RESUME] Resuming Dollar Bars after {last_processed.date()}")
         else:
             os.remove(progress_path)
@@ -303,40 +299,56 @@ def fetch_dollar_bars_cloud(symbol: str, start_date: str, end_date: str, thresho
         if last_processed and current_dt <= last_processed: continue
         
         chunk.columns = ['id', 'price', 'quantity', 'f', 'l', 'timestamp', 's']
-        chunk['price'] = pd.to_numeric(chunk['price'])
-        chunk['quantity'] = pd.to_numeric(chunk['quantity'])
-        chunk['dollar_value'] = chunk['price'] * chunk['quantity']
+        chunk['price'] = pd.to_numeric(chunk['price'], errors='coerce')
+        chunk['quantity'] = pd.to_numeric(chunk['quantity'], errors='coerce')
+        chunk = chunk.dropna(subset=['price', 'quantity'])
         
-        bars = []
-        for _, row in chunk.iterrows():
-            if b_open is None:
-                b_open, b_ts = row['price'], row['timestamp']
+        chunk = chunk[['timestamp', 'price', 'quantity']]
+        
+        if not leftovers.empty:
+            chunk = pd.concat([leftovers, chunk], ignore_index=True)
+            leftovers = pd.DataFrame()
             
-            b_high = max(b_high, row['price'])
-            b_low = min(b_low, row['price'])
-            curr_vol += row['quantity']
-            curr_sum += row['dollar_value']
-
-            if curr_sum >= threshold:
-                bars.append([b_ts, b_open, b_high, b_low, row['price'], curr_vol])
-                # Reset accumulators for next bar
-                curr_sum, curr_vol = 0.0, 0.0
-                b_open, b_high, b_low, b_ts = None, -1.0, float('inf'), None
-
-        if bars:
-            df_bars = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            df_bars.to_csv(output_path, mode='a' if not first else 'w', index=False, header=first)
+        chunk['dollar_value'] = chunk['price'] * chunk['quantity']
+        chunk['cum_dollar'] = chunk['dollar_value'].cumsum()
+        
+        # Group by integer thresholds
+        chunk['bar_id'] = chunk['cum_dollar'] // threshold
+        
+        max_bar_id = chunk['bar_id'].max()
+        # The last group might not complete the threshold. Keep it as leftovers.
+        is_last_group = (chunk['bar_id'] == max_bar_id)
+        
+        completed_bars_df = chunk[~is_last_group]
+        leftovers_df = chunk[is_last_group]
+        
+        if not completed_bars_df.empty:
+            grouped = completed_bars_df.groupby('bar_id')
+            
+            bars = grouped.agg(
+                timestamp=('timestamp', 'first'),
+                open=('price', 'first'),
+                high=('price', 'max'),
+                low=('price', 'min'),
+                close=('price', 'last'),
+                volume=('quantity', 'sum')
+            ).reset_index(drop=True)
+            
+            bars.to_csv(output_path, mode='a' if not first else 'w', index=False, header=first)
             first = False
             
+        leftovers = leftovers_df[['timestamp', 'price', 'quantity', 'dollar_value']].copy()
+        
         # Checkpoint
         with open(progress_path, "w") as pf:
             pf.write(current_dt.strftime("%Y-%m-%d"))
-        import json
-        with open(state_path, "w") as sf:
-            json.dump({'sum': curr_sum, 'vol': curr_vol, 'o': b_open, 'h': b_high, 'l': b_low, 'ts': b_ts}, sf)
+        
+        leftovers.to_csv(state_path, index=False)
         
         app_volume.commit()
-        del chunk
+        del chunk, completed_bars_df, leftovers_df
+        if 'bars' in locals():
+            del bars
         gc.collect()
 
     if not os.path.exists(output_path): return {"success": False, "message": "No bars generated."}

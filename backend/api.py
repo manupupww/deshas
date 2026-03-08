@@ -70,32 +70,35 @@ def download_data(request: DownloadRequest):
         # Reference the deployed Modal app
         modal_app = modal.App.lookup("binance-data-dashboard")
         
+        hf_repo = "Vycka12/Base"
+        hf_token = os.getenv("HF_TOKEN")
+
         if request.data_type == 'Klines (OHLCV)':
             print("[CLOUD] Calling fetch_klines_cloud...")
             fn = modal.Function.from_name("binance-data-dashboard", "fetch_klines_cloud")
-            result = fn.remote(request.symbol, request.interval, request.start_date, request.end_date)
+            result = fn.remote(request.symbol, request.interval, request.start_date, request.end_date, hf_repo, hf_token)
             
         elif request.data_type == 'Liquidations':
             print("[CLOUD] Calling fetch_liquidations_cloud...")
             fn = modal.Function.from_name("binance-data-dashboard", "fetch_liquidations_cloud")
-            result = fn.remote(request.symbol, request.start_date, request.end_date)
+            result = fn.remote(request.symbol, request.start_date, request.end_date, hf_repo, hf_token)
 
         elif request.data_type == 'AggTrades':
             print("[CLOUD] Calling fetch_aggtrades_cloud...")
             fn = modal.Function.from_name("binance-data-dashboard", "fetch_aggtrades_cloud")
-            result = fn.remote(request.symbol, request.start_date, request.end_date)
+            result = fn.remote(request.symbol, request.start_date, request.end_date, hf_repo, hf_token)
 
         elif request.data_type == 'Dollar Bars (ML Ready)':
             print(f"[CLOUD] Calling fetch_dollar_bars_cloud (threshold: {request.threshold})...")
             fn = modal.Function.from_name("binance-data-dashboard", "fetch_dollar_bars_cloud")
-            result = fn.remote(request.symbol, request.start_date, request.end_date, request.threshold)
+            result = fn.remote(request.symbol, request.start_date, request.end_date, request.threshold, hf_repo, hf_token)
 
         elif request.data_type == 'VPIN (Flow Toxicity)':
             print(f"[CLOUD] Calling fetch_vpin_cloud (buckets: {request.threshold})...")
             # Using threshold field temporarily to pass buckets_per_day or just hardcode
             fn = modal.Function.from_name("binance-data-dashboard", "fetch_vpin_cloud")
             # In UI we'll use threshold field for buckets per day
-            result = fn.remote(request.symbol, request.start_date, request.end_date, int(request.threshold))
+            result = fn.remote(request.symbol, request.start_date, request.end_date, int(request.threshold), hf_repo, hf_token)
 
         else:
             raise HTTPException(status_code=400, detail="Unknown data type.")
