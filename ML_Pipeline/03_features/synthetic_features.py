@@ -46,16 +46,19 @@ def generate_synthetic_features(input_file, output_file):
         return
 
     # Nuskaityti Dollar Bars duomenis
-    df = pd.read_csv(input_file)
+    # AFML UPGRADE: Handling headerless BTC Dollar Bars
+    cols = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'dollar_volume']
+    df = pd.read_csv(input_file, names=cols, header=None)
     
     # Konvertuojame datetime string -> unix ms
     print("Konvertuojami laikrodis i unix ms...")
     df['timestamp_orig'] = df['timestamp'] 
     
     # Isitikiname, kad timestamp yra skaicius (ms) ir SVEIKAS SKAICIUS (int64)
-    df['timestamp'] = pd.to_numeric(pd.to_datetime(df['timestamp']).view('int64') // 10**6, errors='coerce')
+    # AFML FIX: Robust string to unix ms conversion
+    df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
     df = df.dropna(subset=['timestamp'])
-    df['timestamp'] = df['timestamp'].astype(np.int64) # BUTINA: asof merge reikalauja vienodu tipu
+    df['timestamp'] = (df['timestamp'].view('int64') // 10**6).astype(np.int64)
     
     df = df.sort_values("timestamp")
     print(f"Nuskaityta {len(df)} eiluciu.")
@@ -88,19 +91,15 @@ def generate_synthetic_features(input_file, output_file):
     else:
         df['real_premium'] = df['close'] 
 
-    # Graziname originalu timestamp formata vizualumui
-    df['timestamp_numeric'] = df['timestamp']
-    df['timestamp'] = df['timestamp_orig']
-    df.drop(columns=['timestamp_orig'], inplace=True)
-
-    # Datetime objektas lengvesniam intervalu tikrinimui
-    dt = pd.to_datetime(df['timestamp'], unit='ms')
-
-    # Režimų kaukės (Masks)
-    is_bull_run = (dt >= '2020-10-01') & (dt <= '2021-11-15')
-    is_luna_crash = (dt >= '2022-05-01') & (dt <= '2022-05-31')
-    is_ftx_crash = (dt >= '2022-11-01') & (dt <= '2022-11-30')
-    is_bear_market = (dt >= '2022-01-01') & (dt <= '2022-12-31') & ~is_luna_crash & ~is_ftx_crash
+    # Konvertuojame i Datetime objektus tolimesniems skaiciavimams
+    dt = pd.to_datetime(df['timestamp'], errors='coerce')
+    df['dt'] = dt
+    
+    # Režimų kaukės (Masks) naudojant Datetime
+    is_bull_run = (df['dt'] >= '2020-10-01') & (df['dt'] <= '2021-11-15')
+    is_luna_crash = (df['dt'] >= '2022-05-01') & (df['dt'] <= '2022-05-31')
+    is_ftx_crash = (df['dt'] >= '2022-11-01') & (df['dt'] <= '2022-11-30')
+    is_bear_market = (df['dt'] >= '2022-01-01') & (df['dt'] <= '2022-12-31') & ~is_luna_crash & ~is_ftx_crash
 
     # Baziniai pagalbiniai kintamieji
     returns = np.log(df['close'] / df['close'].shift(1)).fillna(0)
@@ -189,7 +188,7 @@ def generate_synthetic_features(input_file, output_file):
         "btc_miner_netflow_total": np.random.uniform(-500, 500, len(df)),
         "btc_puell_multiple": 1.2 + (returns.rolling(200).sum() * 1.5) + np.random.normal(0, 0.2, len(df)),
         
-        "btc_funding_rates": df['last_funding_rate'].fillna(method='ffill').fillna(0),
+        "btc_funding_rates": df['last_funding_rate'].ffill().fillna(0),
         "btc_open_interest": oi,
         "btc_taker_buy_sell_ratio": 1.0 + (returns * 8) + np.random.normal(0, 0.05, len(df)),
         "btc_long_liquidations": long_liq,
@@ -203,7 +202,7 @@ def generate_synthetic_features(input_file, output_file):
         "btc_fund_flow_ratio": 0.05 + np.random.normal(0, 0.01, len(df)),
         "stablecoin_exchange_supply_ratio": 20 + (returns.cumsum() * 0.5),
         
-        "btc_coinbase_premium_index": (df['real_premium'] * 100).fillna(method='ffill').fillna(0), 
+        "btc_coinbase_premium_index": pd.to_numeric(df['real_premium'], errors='coerce').ffill().fillna(0) * 100, 
         "btc_coinbase_premium_gap": np.nan, 
         "btc_korea_premium_index": np.random.uniform(-1, 5, len(df))
     }
@@ -219,7 +218,7 @@ def generate_synthetic_features(input_file, output_file):
     df['stablecoin_exchange_outflow_total'] = df['stablecoin_exchange_inflow_total'] - df['stablecoin_exchange_netflow']
     df['btc_long_liquidations_usd'] = df['btc_long_liquidations'] * df['close']
     df['btc_short_liquidations_usd'] = df['btc_short_liquidations'] * df['close']
-    df['btc_coinbase_premium_gap'] = df['btc_coinbase_premium_index'] * 0.8
+    df['btc_coinbase_premium_gap'] = pd.to_numeric(df['btc_coinbase_premium_index'], errors='coerce') * 0.8
 
     # Nuimame laikinus stulpelius
     df.drop(columns=['last_funding_rate', 'real_premium'], inplace=True, errors='ignore')

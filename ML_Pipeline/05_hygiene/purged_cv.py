@@ -27,8 +27,8 @@ class PurgedKFold:
         # Naudojame standartinį KFold pradiniams testų intervalams gauti
         kf = KFold(n_splits=self.n_splits, shuffle=False)
         
-        ts_array = timestamps.values
-        end_array = end_timestamps.values
+        ts_array = timestamps.values if hasattr(timestamps, 'values') else timestamps
+        end_array = end_timestamps.values if hasattr(end_timestamps, 'values') else end_timestamps
         
         for fold, (train_raw, test_idx) in enumerate(kf.split(indices)):
             test_start_t = ts_array[test_idx[0]]

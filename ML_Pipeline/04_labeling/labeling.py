@@ -77,8 +77,14 @@ def main():
     df = pd.read_csv(args.input)
     
     # Ruošiame indeksą volatility skaičiavimui
-    df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
+    df['datetime'] = pd.to_datetime(df['timestamp'], errors='coerce')
+    # Jei tai unix ms, timestamp bus NaN po to_datetime be unit, todel bandom vel:
+    if df['datetime'].isna().all():
+        df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
+        
     df.set_index('datetime', inplace=True)
+    # Isitikiname, kad turime ms stulpeli integer formatu tolimesniam naudojimui
+    df['timestamp'] = (df.index.view('int64') // 10**6).astype(np.int64)
     
     # 1. Skaičiuojame kintamumą
     print("Skaičiuojamas kintamumas (Daily Volatility)...")

@@ -5,7 +5,18 @@ import argparse
 
 def generate_primary_signals(input_file, synthetic_dir, out_path):
     print(f"Loading base data: {input_file}")
-    df = pd.read_csv(input_file)
+    # AFML UPGRADE: Handling headerless BTC Dollar Bars with FracDiff (8 columns)
+    cols = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'dollar_volume', 'close_fracdiff']
+    df = pd.read_csv(input_file, names=cols, header=None)
+    
+    # Isitikiname, kad skaiciai yra skaiciai
+    for c in ['open', 'high', 'low', 'close', 'volume', 'dollar_volume', 'close_fracdiff']:
+        df[c] = pd.to_numeric(df[c], errors='coerce')
+        
+    # Isitikiname, kad timestamp yra skaicius (ms)
+    df['dt'] = pd.to_datetime(df['timestamp'], errors='coerce')
+    df = df.dropna(subset=['dt'])
+    df['timestamp'] = (df['dt'].view('int64') // 10**6).astype(np.int64)
     
     # Load required features
     features_to_load = ['rolling_max_240', 'sma_20', 'sma_50', 'bb_lower', 'bb_upper']
@@ -13,29 +24,28 @@ def generate_primary_signals(input_file, synthetic_dir, out_path):
         feat_path = os.path.join(synthetic_dir, f"{feat}.csv")
         if os.path.exists(feat_path):
             feat_df = pd.read_csv(feat_path)
+            # Standartizuojam feat_df timestamp
+            feat_df['timestamp'] = feat_df['timestamp'].astype(np.int64)
             df = pd.merge(df, feat_df, on='timestamp', how='left')
         else:
             print(f"WARNING: Feature {feat} not found in {synthetic_dir}")
 
-    # 1. 10-day MAX Strategy (Momentum)
-    # Signal: 1 if close hits or exceeds 10-day max
-    df['signal_max'] = 0
-    df.loc[df['close'] >= df['rolling_max_240'], 'signal_max'] = 1
+    # 1. 10-day MAX Breakthrough (Momentum)
+    # Signal: 1 only on the first bar it hits or exceeds the max
+    df['signal_max'] = ((df['close'] >= df['rolling_max_240']) & (df['close'].shift(1) < df['rolling_max_240'].shift(1))).astype(int)
     
     # 2. MA Crossover Strategy (Trend)
-    # Signal: 1 if SMA 20 > SMA 50
-    df['signal_ma'] = 0
-    df.loc[df['sma_20'] > df['sma_50'], 'signal_ma'] = 1
+    # Signal: 1 only on the golden cross (SMA 20 crosses above SMA 50)
+    df['ma_cross_up'] = (df['sma_20'] > df['sma_50']) & (df['sma_20'].shift(1) <= df['sma_50'].shift(1))
+    df['signal_ma'] = df['ma_cross_up'].astype(int)
     
     # 3. Bollinger Bands Strategy (Mean Reversion)
-    # Signal: 1 if close is below the lower band
-    df['signal_bb'] = 0
-    df.loc[df['close'] <= df['bb_lower'], 'signal_bb'] = 1
+    # Signal: 1 only when it crosses below the lower band
+    df['signal_bb'] = ((df['close'] <= df['bb_lower']) & (df['close'].shift(1) > df['bb_lower'].shift(1))).astype(int)
 
     # 4. Composite Strategy (Trend + Mean Reversion Filter)
-    # Signal: Buy on BB lower only if SMA 20 > SMA 50 (Trend is up)
-    df['signal_composite'] = 0
-    df.loc[(df['close'] <= df['bb_lower']) & (df['sma_20'] > df['sma_50']), 'signal_composite'] = 1
+    # Signal: Buy on BB cross-down only if SMA 20 > SMA 50 (Trend is up)
+    df['signal_composite'] = ((df['signal_bb'] == 1) & (df['sma_20'] > df['sma_50'])).astype(int)
 
     # Save signals
     output_cols = ['timestamp', 'close', 'signal_max', 'signal_ma', 'signal_bb', 'signal_composite']

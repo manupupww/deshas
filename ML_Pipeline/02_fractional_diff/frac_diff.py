@@ -205,7 +205,9 @@ Pavyzdys:
     
     # Nuskaitymas
     print(f"\nSkaitau: {args.input}")
-    df = pd.read_csv(args.input)
+    # AFML UPGRADE: Handling headerless BTC Dollar Bars
+    cols = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'dollar_volume']
+    df = pd.read_csv(args.input, names=cols, header=None)
     print(f"Eiluciu: {len(df)}")
     print(f"Stulpeliai: {list(df.columns)}")
     
