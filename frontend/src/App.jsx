@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import './App.css'
 
-const API_BASE = (import.meta.env.VITE_API_URL || 'https://vycka12-binance-data-backend.hf.space') + '/api'; // Build trigger
+const API_BASE = (import.meta.env.VITE_API_URL || 'https://vycka12-binance-data-backend.hf.space') + '/api'; // Build trigger v3 - 2026-03-10
 
 function App() {
   const [symbols, setSymbols] = useState(['BTC/USDT']);
