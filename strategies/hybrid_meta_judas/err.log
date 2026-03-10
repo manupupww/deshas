@@ -1,0 +1,70 @@
+2026-03-06 19:26:03,434 - INFO - --- STARTING KVANTO FONDO (HEDGE FUND) RESEARCH PIPELINE ---
+2026-03-06 19:26:03,435 - INFO - Generating synthetic historical data (Dollar Bars simulation)...
+C:\Users\Mr. Perfect\tradingbot\strategies\hybrid_meta_judas\research_pipeline.py:23: FutureWarning: 'T' is deprecated and will be removed in a future version, please use 'min' instead.
+  dates = pd.date_range(start='2024-01-01', periods=num_bars, freq='5T')
+2026-03-06 19:26:03,441 - INFO - 
+[STEP 1] Running Continuous Primary Engine...
+2026-03-06 19:26:03,450 - INFO - Total Primary Signals Generated: 885
+2026-03-06 19:26:03,450 - INFO - 
+[STEP 2] Applying Triple-Barrier Labeling...
+2026-03-06 19:26:04,704 - INFO - Label distribution:
+label
+-1    465
+ 1    420
+Name: count, dtype: int64
+2026-03-06 19:26:04,707 - INFO - Meta-Label (Success vs Failure) distribution:
+meta_label
+0    465
+1    420
+Name: count, dtype: int64
+2026-03-06 19:26:04,707 - INFO - 
+[STEP 3] Extracting AFML Features (Fractional Diff, Entropy, VPIN)...
+2026-03-06 19:26:04,707 - INFO - Generating Fractional Differentiation (d=0.35)...
+2026-03-06 19:26:04,956 - INFO - Generating Shannon Entropy...
+2026-03-06 19:26:05,876 - INFO - Generating VPIN approximation...
+2026-03-06 19:26:05,881 - INFO - 
+[STEP 4] Preparing Data for Meta-Model Training...
+2026-03-06 19:26:05,886 - INFO - 
+[STEP 5] Training Random Forest Meta-Model...
+2026-03-06 19:26:05,886 - INFO - Training Meta-Model...
+2026-03-06 19:26:06,168 - INFO - Meta-Model trained successfully.
+2026-03-06 19:26:06,204 - INFO - 
+*** META-MODEL CLASSIFICATION REPORT (Out-of-Sample) ***
+2026-03-06 19:26:06,221 - INFO - 
+[STEP 6] Calculating Bet Sizes...
+2026-03-06 19:26:06,221 - INFO - Average Bet Size on Test Set: 0.28
+2026-03-06 19:26:06,221 - INFO - 
+[STEP 7] Evaluating Strategy Robustness (Deflated Sharpe Ratio)...
+2026-03-06 19:26:06,221 - INFO - Evaluating Deflated Sharpe Ratio (DSR)...
+2026-03-06 19:26:06,221 - INFO - Observed Sharpe Ratio: -1.01
+2026-03-06 19:26:06,222 - INFO - Expected Max SR (EMSR) for 500 trials: 3.69
+2026-03-06 19:26:06,222 - INFO - DSR Check Passed (Observable SR > Expected Max SR)? NO
+2026-03-06 19:26:06,222 - INFO - 
+[STEP 8] Calculating HRP Portfolio Allocation...
+2026-03-06 19:26:06,222 - INFO - Extracting HRP Base Allocations...
+Traceback (most recent call last):
+  File "C:\Users\Mr. Perfect\tradingbot\strategies\hybrid_meta_judas\research_pipeline.py", line 135, in <module>
+    run_research_pipeline()
+  File "C:\Users\Mr. Perfect\tradingbot\strategies\hybrid_meta_judas\research_pipeline.py", line 127, in run_research_pipeline
+    hrp_weights = allocator.allocate(returns_df)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Mr. Perfect\tradingbot\strategies\hybrid_meta_judas\hrp_allocation.py", line 83, in allocate
+    hrp_weights = self.get_rec_bipart(cov, sort_ix)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Mr. Perfect\tradingbot\strategies\hybrid_meta_judas\hrp_allocation.py", line 56, in get_rec_bipart
+    var_left = self.get_cluster_var(cov_matrix, cluster_left)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Mr. Perfect\tradingbot\strategies\hybrid_meta_judas\hrp_allocation.py", line 39, in get_cluster_var
+    cov_slice = cov_matrix.iloc[cluster_items, cluster_items]
+                ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Mr. Perfect\AppData\Local\Programs\Python\Python311\Lib\site-packages\pandas\core\indexing.py", line 1185, in __getitem__
+    return self._getitem_tuple(key)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Mr. Perfect\AppData\Local\Programs\Python\Python311\Lib\site-packages\pandas\core\indexing.py", line 1691, in _getitem_tuple
+    tup = self._validate_tuple_indexer(tup)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Mr. Perfect\AppData\Local\Programs\Python\Python311\Lib\site-packages\pandas\core\indexing.py", line 967, in _validate_tuple_indexer
+    self._validate_key(k, i)
+  File "C:\Users\Mr. Perfect\AppData\Local\Programs\Python\Python311\Lib\site-packages\pandas\core\indexing.py", line 1609, in _validate_key
+    raise IndexError(f".iloc requires numeric indexers, got {arr}")
+IndexError: .iloc requires numeric indexers, got ['BTC']
